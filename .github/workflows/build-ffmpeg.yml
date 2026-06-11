@@ -1,0 +1,223 @@
+# Builds the LGPL static FFmpeg sidecar (one-shot, manually dispatched) per
+# docs/specs/ffmpeg-sidecar-build.md and publishes binaries to a GitHub release
+# that scripts/fetch-native-libs.sh downloads (same model as build-tesseract.yml).
+# Upgrade path: bump ffmpeg_version + release_tag + FFMPEG_SHA256, re-dispatch,
+# update FFMPEG_TAG in the fetch script.
+name: build-ffmpeg
+on:
+  workflow_dispatch:
+    inputs:
+      ffmpeg_version:
+        description: "FFmpeg point release to build"
+        required: true
+        default: "7.1.1"
+      release_tag:
+        description: "Release tag to publish binaries under"
+        required: true
+        default: "ffmpeg-7.1.1"
+
+env:
+  # sha256 of ffmpeg-<ffmpeg_version>.tar.xz from ffmpeg.org — update on version bumps
+  FFMPEG_SHA256: "733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1"
+  SVTAV1_VERSION: "2.3.0"
+  # The LGPL allowlist (PACKAGES.md §4.3, normative). `sine` filter added for the
+  # conformance gate's audio smoke encodes (documented PACKAGES deviation). `drawtext`
+  # + `--enable-libfreetype --enable-libharfbuzz` added for video.watermark text marks
+  # (ENG-49). FreeType is taken under the FTL (BSD-style, LGPL-compatible — not GPL);
+  # HarfBuzz is MIT. Both are LGPL-compatible. HarfBuzz is REQUIRED, not optional: FFmpeg
+  # 7.x's `drawtext` filter has a hard harfbuzz dependency — with only libfreetype, configure
+  # silently drops drawtext (verified on the r4 build). No fontconfig: we always pass an
+  # explicit `fontfile=`, keeping font lookup deterministic + local. `asplit,select,aselect`
+  # added (r7, ENG-105) for the Trim Studio's multi-cut concat filtergraph — core filters, no
+  # external dep: a filtergraph can't reference [0:v]/[0:a] twice, so each fan-out needs asplit.
+  COMMON_FLAGS: >-
+    --disable-everything --disable-autodetect
+    --disable-gpl --disable-nonfree
+    --disable-shared --enable-static
+    --disable-doc --disable-ffplay --disable-ffprobe
+    --disable-network --disable-debug
+    --pkg-config-flags=--static
+    --enable-zlib
+    --enable-libsvtav1 --enable-libvpx --enable-libmp3lame --enable-libopus --enable-libfreetype --enable-libharfbuzz
+    --enable-encoder=libsvtav1,libvpx_vp9,libmp3lame,libopus,aac,pcm_s16le,mjpeg
+    --enable-decoder=h264,hevc,vp9,av1,mp3,aac,opus,vorbis,pcm_s16le,pcm_f32le,pcm_f64le,flac,png,mjpeg,wrapped_avframe
+    --enable-demuxer=mov,matroska,mp3,wav,aiff,flac,mpegts,ogg,image2
+    --enable-muxer=mov,mp4,matroska,webm,mp3,wav,flac,ipod,null,image2pipe,ogg,opus
+    --enable-parser=h264,hevc,vp9,av1,aac,mp3,vorbis,opus,png,mjpeg
+    --enable-protocol=file,pipe
+    --enable-filter=overlay,scale,crop,trim,atrim,setpts,asetpts,colorchannelmixer,format,rotate,aresample,fps,split,asplit,select,aselect,concat,testsrc,sine,drawtext
+    --enable-indev=lavfi
+    --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb,aac_adtstoasc
+    --enable-swscale --enable-swresample
+
+jobs:
+  build-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            triplet: arm64-osx
+            rust_triple: aarch64-apple-darwin
+          # last GitHub-hosted Intel macOS image (macos-13 was retired in 2025)
+          - os: macos-15-intel
+            triplet: x64-osx
+            rust_triple: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build tools
+        run: brew install nasm pkg-config
+      - name: Static codec deps via vcpkg (libvpx, mp3lame, opus, freetype)
+        shell: bash
+        run: |
+          if [ -z "${VCPKG_INSTALLATION_ROOT:-}" ] || [ ! -d "${VCPKG_INSTALLATION_ROOT:-/nonexistent}" ]; then
+            git clone --depth 1 https://github.com/microsoft/vcpkg "$HOME/vcpkg"
+            "$HOME/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+            echo "VCPKG_INSTALLATION_ROOT=$HOME/vcpkg" >> "$GITHUB_ENV"
+            export VCPKG_INSTALLATION_ROOT="$HOME/vcpkg"
+          fi
+          # freetype + harfbuzz: drawtext's hard deps in FFmpeg 7.x (ENG-49). vcpkg's ports
+          # carry the static Requires.private (zlib/bz2/brotli/png + harfbuzz↔freetype) so
+          # --pkg-config-flags=--static links them.
+          "$VCPKG_INSTALLATION_ROOT/vcpkg" install libvpx mp3lame opus freetype harfbuzz --triplet ${{ matrix.triplet }}
+      - name: SVT-AV1 static (cmake, pinned)
+        shell: bash
+        run: |
+          DEPS="$HOME/deps"
+          curl -fsSL "https://gitlab.com/AOMediaCodec/SVT-AV1/-/archive/v${SVTAV1_VERSION}/SVT-AV1-v${SVTAV1_VERSION}.tar.gz" | tar xz
+          # CMAKE_POLICY_VERSION_MINIMUM: SVT-AV1 2.3.0's bundled cpuinfo (x86-only dep)
+          # declares a CMake minimum older than the runner's CMake 4 accepts.
+          cmake -S "SVT-AV1-v${SVTAV1_VERSION}" -B svt-build \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DBUILD_APPS=OFF \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_INSTALL_PREFIX="$DEPS"
+          cmake --build svt-build -j 4 && cmake --install svt-build
+          echo "DEPS=$DEPS" >> "$GITHUB_ENV"
+      - name: FFmpeg source (pinned + checksum)
+        shell: bash
+        run: |
+          curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${{ inputs.ffmpeg_version }}.tar.xz" -o ffmpeg.tar.xz
+          echo "$FFMPEG_SHA256  ffmpeg.tar.xz" | shasum -a 256 -c -
+          tar xf ffmpeg.tar.xz
+      - name: Configure + build
+        shell: bash
+        run: |
+          VC="$VCPKG_INSTALLATION_ROOT/installed/${{ matrix.triplet }}"
+          export PKG_CONFIG_PATH="$DEPS/lib/pkgconfig:$VC/lib/pkgconfig"
+          cd "ffmpeg-${{ inputs.ffmpeg_version }}"
+          ./configure $COMMON_FLAGS \
+            --extra-cflags="-I$VC/include -I$DEPS/include" \
+            --extra-ldflags="-L$VC/lib -L$DEPS/lib" \
+            --enable-videotoolbox \
+            --enable-encoder=h264_videotoolbox,hevc_videotoolbox \
+            || { tail -50 ffbuild/config.log; exit 1; }
+          make -j"$(sysctl -n hw.ncpu)"
+          strip ffmpeg
+      - name: Conformance gate
+        shell: bash
+        run: |
+          scripts/check-ffmpeg-conformance.sh \
+            "ffmpeg-${{ inputs.ffmpeg_version }}/ffmpeg" \
+            h264_videotoolbox hevc_videotoolbox
+      - name: Collect binary
+        shell: bash
+        run: |
+          mkdir -p out
+          cp "ffmpeg-${{ inputs.ffmpeg_version }}/ffmpeg" "out/ffmpeg-${{ matrix.rust_triple }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-${{ matrix.rust_triple }}
+          path: out/*
+          if-no-files-found: error
+
+  build-windows:
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            base-devel git curl
+            mingw-w64-x86_64-toolchain mingw-w64-x86_64-nasm mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-libvpx mingw-w64-x86_64-lame
+            mingw-w64-x86_64-opus mingw-w64-x86_64-libvpl mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-freetype mingw-w64-x86_64-harfbuzz
+      - name: SVT-AV1 static (cmake, pinned — MSYS2's rolling svt-av1 is too new for FFmpeg 7.1's wrapper)
+        run: |
+          curl -fsSL "https://gitlab.com/AOMediaCodec/SVT-AV1/-/archive/v${SVTAV1_VERSION}/SVT-AV1-v${SVTAV1_VERSION}.tar.gz" | tar xz
+          cmake -S "SVT-AV1-v${SVTAV1_VERSION}" -B svt-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DBUILD_APPS=OFF \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_INSTALL_PREFIX=/mingw64
+          cmake --build svt-build -j 4 && cmake --install svt-build
+      - name: HW encoder headers (NVENC + AMF, pinned; header-only — no license exposure)
+        run: |
+          git clone --depth 1 --branch n12.2.72.0 https://git.videolan.org/git/ffmpeg/nv-codec-headers.git
+          make -C nv-codec-headers install PREFIX=/mingw64
+          git clone --depth 1 --branch v1.4.35 https://github.com/GPUOpen-LibrariesAndSDKs/AMF.git
+          mkdir -p /mingw64/include/AMF
+          cp -r AMF/amf/public/include/* /mingw64/include/AMF/
+      - name: FFmpeg source (pinned + checksum)
+        run: |
+          curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${{ inputs.ffmpeg_version }}.tar.xz" -o ffmpeg.tar.xz
+          echo "$FFMPEG_SHA256  ffmpeg.tar.xz" | sha256sum -c -
+          tar xf ffmpeg.tar.xz
+      - name: Configure + build
+        run: |
+          cd "ffmpeg-${{ inputs.ffmpeg_version }}"
+          # mingw's static libfreetype.a (autofit) back-references harfbuzz's hb_shape, and
+          # harfbuzz references freetype — a static circular dep that single-pass ld can't
+          # resolve (r5 failed: "undefined reference to hb_shape" → "harfbuzz not found").
+          # Wrap both in a re-scannable --start-group/--end-group so the configure harfbuzz
+          # probe and the final link both resolve. (macOS/vcpkg resolves this on its own.)
+          ./configure $COMMON_FLAGS \
+            --extra-ldflags="-static" \
+            --extra-libs="-Wl,--start-group -lfreetype -lharfbuzz -Wl,--end-group -lstdc++" \
+            --enable-ffnvcodec --enable-nvenc --enable-amf --enable-libvpl \
+            --enable-encoder=h264_nvenc,hevc_nvenc,h264_qsv,hevc_qsv,h264_amf,hevc_amf \
+            || { tail -50 ffbuild/config.log; exit 1; }
+          make -j"$(nproc)"
+          strip ffmpeg.exe
+      - name: Conformance gate
+        run: |
+          scripts/check-ffmpeg-conformance.sh \
+            "ffmpeg-${{ inputs.ffmpeg_version }}/ffmpeg.exe" \
+            h264_nvenc hevc_nvenc h264_qsv hevc_qsv h264_amf hevc_amf
+      - name: Collect binary
+        run: |
+          mkdir -p out
+          cp "ffmpeg-${{ inputs.ffmpeg_version }}/ffmpeg.exe" out/ffmpeg-x86_64-pc-windows-msvc.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-x86_64-pc-windows-msvc
+          path: out/*
+          if-no-files-found: error
+
+  release:
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && shasum -a 256 * > SHA256SUMS && cat SHA256SUMS
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ inputs.release_tag }}" dist/* \
+            --repo "${{ github.repository }}" \
+            --title "LGPL FFmpeg sidecar binaries" \
+            --notes "Self-built LGPL static FFmpeg ${{ inputs.ffmpeg_version }} (spec docs/specs/ffmpeg-sidecar-build.md; allowlist PACKAGES.md §4.3 + sine filter). No GPL/nonfree components; HW-only H.264/HEVC. Consumed by scripts/fetch-native-libs.sh." \
+            || gh release upload "${{ inputs.release_tag }}" dist/* --clobber --repo "${{ github.repository }}"

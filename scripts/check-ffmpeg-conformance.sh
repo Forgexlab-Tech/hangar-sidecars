@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# License + content conformance for the LGPL FFmpeg sidecar
+# (spec docs/specs/ffmpeg-sidecar-build.md §5). Run in CI on every built binary
+# and locally against a fetched one.
+#   Usage: check-ffmpeg-conformance.sh <ffmpeg-binary> [required-hw-encoder ...]
+set -euo pipefail
+
+bin="$1"; shift
+fail() { echo "✗ $*" >&2; exit 1; }
+ok()   { echo "✓ $*"; }
+
+ver="$("$bin" -version)"
+echo "$ver" | head -1
+
+# 1. License flags (spec §5.1)
+if ! echo "$ver" | grep -q -- "--disable-gpl"; then fail "configuration lacks --disable-gpl"; fi
+if echo "$ver" | grep -q -- "--enable-gpl";      then fail "GPL build detected"; fi
+if echo "$ver" | grep -q -- "--enable-nonfree";  then fail "nonfree build detected"; fi
+if echo "$ver" | grep -q -- "--enable-version3"; then fail "LGPLv3 flag present — stay LGPL 2.1 (spec §4)"; fi
+ok "license flags clean (LGPL 2.1)"
+
+# 2. Encoder content (spec §5.2) — banned, then required (software + platform HW args)
+enc="$("$bin" -hide_banner -encoders)"
+for banned in libx264 libx265 libopenh264; do
+  if echo "$enc" | grep -qw "$banned"; then fail "banned encoder present: $banned"; fi
+done
+for req in libsvtav1 libvpx-vp9 libmp3lame libopus aac pcm_s16le mjpeg "$@"; do
+  if ! echo "$enc" | grep -qw "$req"; then fail "required encoder missing: $req"; fi
+done
+ok "encoder set conforms"
+
+# 3. Smoke encodes — software only, runner-safe (spec §5.3)
+tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+run() { "$bin" -hide_banner -loglevel error -y "$@" || fail "smoke encode failed: $*"; }
+run -f lavfi -i testsrc=size=320x240:rate=30 -t 1 -c:v libvpx-vp9 "$tmp/v.webm"
+run -f lavfi -i testsrc=size=320x240:rate=30 -t 1 -c:v libsvtav1  "$tmp/v.mp4"
+run -f lavfi -i sine=frequency=440:duration=1 -c:a aac        "$tmp/a.m4a"
+run -f lavfi -i sine=frequency=440:duration=1 -c:a libopus    "$tmp/a.webm"
+run -f lavfi -i sine=frequency=440:duration=1 -c:a libmp3lame "$tmp/a.mp3"
+run -f lavfi -i testsrc=size=320x240:rate=30 -frames:v 1 -vf scale=320:-2 -c:v mjpeg -f image2pipe "$tmp/p.jpg"
+ok "smoke encodes (VP9, AV1, AAC, Opus, MP3, poster JPEG)"
+
+# 4. Static-link check, macOS (spec §5.4) — system libs/frameworks only
+if [ "$(uname)" = Darwin ]; then
+  if otool -L "$bin" | tail -n +2 | grep -vE '/usr/lib/|/System/'; then
+    fail "non-system dylib dependency found"
+  fi
+  ok "links only system libraries"
+fi
+
+# 5. Size guard (spec §5.5)
+mb=$(( $(wc -c < "$bin") / 1024 / 1024 ))
+echo "binary size: ${mb}MB"
+if [ "$mb" -gt 60 ]; then fail "binary ${mb}MB exceeds 60MB hard cap"; fi
+if [ "$mb" -gt 35 ]; then echo "::warning::ffmpeg binary ${mb}MB exceeds expected ~30MB"; fi
+
+echo "✓ all conformance checks passed"
