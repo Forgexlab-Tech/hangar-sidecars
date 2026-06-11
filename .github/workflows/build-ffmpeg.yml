@@ -159,7 +159,7 @@ jobs:
           cmake --build svt-build -j 4 && cmake --install svt-build
       - name: HW encoder headers (NVENC + AMF, pinned; header-only — no license exposure)
         run: |
-          git clone --depth 1 --branch n12.2.72.0 https://git.videolan.org/git/ffmpeg/nv-codec-headers.git
+          git clone --depth 1 --branch n12.2.72.0 https://github.com/FFmpeg/nv-codec-headers.git
           make -C nv-codec-headers install PREFIX=/mingw64
           git clone --depth 1 --branch v1.4.35 https://github.com/GPUOpen-LibrariesAndSDKs/AMF.git
           mkdir -p /mingw64/include/AMF
