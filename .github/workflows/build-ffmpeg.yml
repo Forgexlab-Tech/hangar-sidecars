@@ -50,7 +50,7 @@ env:
     --enable-muxer=mov,mp4,matroska,webm,mp3,wav,flac,ipod,null,image2pipe,ogg,opus
     --enable-parser=h264,hevc,vp9,av1,aac,mp3,vorbis,opus,png,mjpeg
     --enable-protocol=file,pipe
-    --enable-filter=overlay,scale,crop,trim,atrim,setpts,asetpts,colorchannelmixer,format,rotate,aresample,fps,split,asplit,select,aselect,concat,testsrc,sine,drawtext,silencedetect,transpose,hflip,vflip,null,atempo
+    --enable-filter=overlay,scale,crop,trim,atrim,setpts,asetpts,colorchannelmixer,format,rotate,aresample,fps,split,asplit,select,aselect,concat,testsrc,sine,drawtext,silencedetect,transpose,hflip,vflip,null,atempo,xfade,acrossfade,boxblur,pad,anullsrc
     --enable-indev=lavfi
     --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb,aac_adtstoasc
     --enable-swscale --enable-swresample
