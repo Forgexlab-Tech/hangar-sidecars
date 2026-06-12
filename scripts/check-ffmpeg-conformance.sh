@@ -49,12 +49,13 @@ run -f lavfi -i sine=frequency=440:duration=1 -c:a libmp3lame "$tmp/a.mp3"
 run -f lavfi -i testsrc=size=320x240:rate=30 -frames:v 1 -vf scale=320:-2 -c:v mjpeg -f image2pipe "$tmp/p.jpg"
 ok "smoke encodes (VP9, AV1, AAC, Opus, MP3, poster JPEG)"
 
-# video.join transition path (spec video-join): exercises xfade + acrossfade + boxblur + pad +
-# anullsrc in one graph, so a build that drops any of them fails here instead of at runtime.
+# video.join transition path (spec video-join): exercises xfade + acrossfade + gblur + pad +
+# anullsrc + setsar in one graph, so a build that drops any of them fails here instead of at
+# runtime. gblur is the LGPL blur (boxblur is GPL-only — dropped under --disable-gpl).
 run -f lavfi -i testsrc=size=320x240:rate=30 -f lavfi -i testsrc=size=240x320:rate=30 \
-  -filter_complex "[0:v]scale=320:240,boxblur=2:1,setsar=1[jv0];[1:v]scale=320:240:force_original_aspect_ratio=decrease,pad=320:240:(ow-iw)/2:(oh-ih)/2,setsar=1[jv1];[jv0][jv1]xfade=transition=fade:duration=0.4:offset=0.6[jvv];sine=frequency=440:sample_rate=48000,atrim=0:1[ja0];anullsrc=channel_layout=stereo:sample_rate=48000,atrim=0:1[ja1];[ja0][ja1]acrossfade=d=0.4[jaa]" \
+  -filter_complex "[0:v]scale=320:240,gblur=sigma=2,setsar=1[jv0];[1:v]scale=320:240:force_original_aspect_ratio=decrease,pad=320:240:(ow-iw)/2:(oh-ih)/2,setsar=1[jv1];[jv0][jv1]xfade=transition=fade:duration=0.4:offset=0.6[jvv];sine=frequency=440:sample_rate=48000,atrim=0:1[ja0];anullsrc=channel_layout=stereo:sample_rate=48000,atrim=0:1[ja1];[ja0][ja1]acrossfade=d=0.4[jaa]" \
   -map "[jvv]" -map "[jaa]" -t 1 -c:v libvpx-vp9 -c:a libopus "$tmp/join.webm"
-ok "smoke encode (xfade + acrossfade + boxblur + pad + anullsrc — video.join)"
+ok "smoke encode (xfade + acrossfade + gblur + pad + anullsrc + setsar — video.join)"
 
 # 4. Static-link check, macOS (spec §5.4) — system libs/frameworks only
 if [ "$(uname)" = Darwin ]; then
