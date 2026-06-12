@@ -24,7 +24,7 @@ enc="$("$bin" -hide_banner -encoders)"
 for banned in libx264 libx265 libopenh264; do
   if echo "$enc" | grep -qw "$banned"; then fail "banned encoder present: $banned"; fi
 done
-for req in libsvtav1 libvpx-vp9 libmp3lame libopus aac pcm_s16le mjpeg "$@"; do
+for req in libsvtav1 libvpx-vp9 libmp3lame libopus aac pcm_s16le mjpeg gif "$@"; do
   if ! echo "$enc" | grep -qw "$req"; then fail "required encoder missing: $req"; fi
 done
 ok "encoder set conforms"
@@ -33,7 +33,7 @@ ok "encoder set conforms"
 # allowlist drift: `atempo` (speed) is NOT auto-included, so a dropped --enable-filter would ship a
 # speed-less binary silently. (transpose/hflip/vflip ARE auto-included, but asserting them is cheap.)
 filt="$("$bin" -hide_banner -filters | awk '{print $2}')"
-for req in overlay scale crop drawtext silencedetect transpose hflip vflip atempo; do
+for req in overlay scale crop drawtext silencedetect transpose hflip vflip atempo palettegen paletteuse; do
   if ! echo "$filt" | grep -qw "$req"; then fail "required filter missing: $req"; fi
 done
 ok "filter set conforms"
@@ -56,6 +56,14 @@ run -f lavfi -i testsrc=size=320x240:rate=30 -f lavfi -i testsrc=size=240x320:ra
   -filter_complex "[0:v]scale=320:240,gblur=sigma=2,setsar=1[jv0];[1:v]scale=320:240:force_original_aspect_ratio=decrease,pad=320:240:(ow-iw)/2:(oh-ih)/2,setsar=1[jv1];[jv0][jv1]xfade=transition=fade:duration=0.4:offset=0.6[jvv];sine=frequency=440:sample_rate=48000,atrim=0:1[ja0];anullsrc=channel_layout=stereo:sample_rate=48000,atrim=0:1[ja1];[ja0][ja1]acrossfade=d=0.4[jaa]" \
   -map "[jvv]" -map "[jaa]" -t 1 -c:v libvpx-vp9 -c:a libopus "$tmp/join.webm"
 ok "smoke encode (xfade + acrossfade + gblur + pad + anullsrc + setsar — video.join)"
+
+# video.to_gif path (spec tool-catalog video.to_gif): single-graph two-pass palettegen → paletteuse
+# into the gif encoder/muxer. A build that drops any of gif/palettegen/paletteuse fails here, not at
+# runtime. `split` feeds both the palette generator and the frames it colours.
+run -f lavfi -i testsrc=size=320x240:rate=30 -t 1 \
+  -vf "fps=12,scale=160:-1:flags=lanczos,split[g0][g1];[g0]palettegen[p];[g1][p]paletteuse" \
+  -loop 0 "$tmp/out.gif"
+ok "smoke encode (palettegen + paletteuse → gif — video.to_gif)"
 
 # 4. Static-link check, macOS (spec §5.4) — system libs/frameworks only
 if [ "$(uname)" = Darwin ]; then

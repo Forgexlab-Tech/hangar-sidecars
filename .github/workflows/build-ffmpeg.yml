@@ -44,13 +44,13 @@ env:
     --pkg-config-flags=--static
     --enable-zlib
     --enable-libsvtav1 --enable-libvpx --enable-libmp3lame --enable-libopus --enable-libfreetype --enable-libharfbuzz
-    --enable-encoder=libsvtav1,libvpx_vp9,libmp3lame,libopus,aac,pcm_s16le,mjpeg
+    --enable-encoder=libsvtav1,libvpx_vp9,libmp3lame,libopus,aac,pcm_s16le,mjpeg,gif
     --enable-decoder=h264,hevc,vp9,av1,mp3,aac,opus,vorbis,pcm_s16le,pcm_f32le,pcm_f64le,flac,png,mjpeg,wrapped_avframe
     --enable-demuxer=mov,matroska,mp3,wav,aiff,flac,mpegts,ogg,image2
-    --enable-muxer=mov,mp4,matroska,webm,mp3,wav,flac,ipod,null,image2pipe,ogg,opus
+    --enable-muxer=mov,mp4,matroska,webm,mp3,wav,flac,ipod,null,image2pipe,ogg,opus,gif
     --enable-parser=h264,hevc,vp9,av1,aac,mp3,vorbis,opus,png,mjpeg
     --enable-protocol=file,pipe
-    --enable-filter=overlay,scale,crop,trim,atrim,setpts,asetpts,colorchannelmixer,format,rotate,aresample,fps,split,asplit,select,aselect,concat,testsrc,sine,drawtext,silencedetect,transpose,hflip,vflip,null,atempo,xfade,acrossfade,gblur,pad,anullsrc,setsar
+    --enable-filter=overlay,scale,crop,trim,atrim,setpts,asetpts,colorchannelmixer,format,rotate,aresample,fps,split,asplit,select,aselect,concat,testsrc,sine,drawtext,silencedetect,transpose,hflip,vflip,null,atempo,xfade,acrossfade,gblur,pad,anullsrc,setsar,palettegen,paletteuse
     --enable-indev=lavfi
     --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb,aac_adtstoasc
     --enable-swscale --enable-swresample
