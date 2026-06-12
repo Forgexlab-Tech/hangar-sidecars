@@ -29,6 +29,15 @@ for req in libsvtav1 libvpx-vp9 libmp3lame libopus aac pcm_s16le mjpeg "$@"; do
 done
 ok "encoder set conforms"
 
+# 2b. Filter content — the allowlisted filters the tools depend on (PACKAGES §4.3). Guards against
+# allowlist drift: `atempo` (speed) is NOT auto-included, so a dropped --enable-filter would ship a
+# speed-less binary silently. (transpose/hflip/vflip ARE auto-included, but asserting them is cheap.)
+filt="$("$bin" -hide_banner -filters | awk '{print $2}')"
+for req in overlay scale crop drawtext silencedetect transpose hflip vflip atempo; do
+  if ! echo "$filt" | grep -qw "$req"; then fail "required filter missing: $req"; fi
+done
+ok "filter set conforms"
+
 # 3. Smoke encodes — software only, runner-safe (spec §5.3)
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 run() { "$bin" -hide_banner -loglevel error -y "$@" || fail "smoke encode failed: $*"; }

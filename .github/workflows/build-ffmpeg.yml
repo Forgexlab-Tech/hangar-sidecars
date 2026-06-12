@@ -30,6 +30,11 @@ env:
   # explicit `fontfile=`, keeping font lookup deterministic + local. `asplit,select,aselect`
   # added (r7, ENG-105) for the Trim Studio's multi-cut concat filtergraph — core filters, no
   # external dep: a filtergraph can't reference [0:v]/[0:a] twice, so each fan-out needs asplit.
+  # `silencedetect` added (r8, ENG-107) for auto-trim. `transpose,hflip,vflip,null` made EXPLICIT
+  # (r9): FFmpeg auto-includes them even under --disable-everything, so r8 already shipped them and
+  # video.rotate (ENG-111) runs on r8 — but listing them keeps this allowlist honest + matches
+  # PACKAGES §4.3 (the drift caused real confusion). `atempo` added (r9, ENG-112) for pitch-
+  # preserving video.speed/audio.speed (ENG-113/ENG-114) — NOT auto-included, needs explicit enable.
   COMMON_FLAGS: >-
     --disable-everything --disable-autodetect
     --disable-gpl --disable-nonfree
@@ -45,7 +50,7 @@ env:
     --enable-muxer=mov,mp4,matroska,webm,mp3,wav,flac,ipod,null,image2pipe,ogg,opus
     --enable-parser=h264,hevc,vp9,av1,aac,mp3,vorbis,opus,png,mjpeg
     --enable-protocol=file,pipe
-    --enable-filter=overlay,scale,crop,trim,atrim,setpts,asetpts,colorchannelmixer,format,rotate,aresample,fps,split,asplit,select,aselect,concat,testsrc,sine,drawtext,silencedetect
+    --enable-filter=overlay,scale,crop,trim,atrim,setpts,asetpts,colorchannelmixer,format,rotate,aresample,fps,split,asplit,select,aselect,concat,testsrc,sine,drawtext,silencedetect,transpose,hflip,vflip,null,atempo
     --enable-indev=lavfi
     --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb,aac_adtstoasc
     --enable-swscale --enable-swresample
