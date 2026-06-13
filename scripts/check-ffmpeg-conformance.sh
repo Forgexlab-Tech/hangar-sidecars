@@ -59,8 +59,10 @@ ok "smoke encode (xfade + acrossfade + gblur + pad + anullsrc + setsar — video
 
 # video.to_gif path (spec tool-catalog video.to_gif): single-graph two-pass palettegen → paletteuse
 # into the gif encoder/muxer. A build that drops any of gif/palettegen/paletteuse fails here, not at
-# runtime. `split` feeds both the palette generator and the frames it colours.
-run -f lavfi -i testsrc=size=320x240:rate=30 -t 1 \
+# runtime. `split` feeds both the palette generator and the frames it colours. The source MUST be
+# finite (`duration=1`, not `-t 1` on the output): palettegen only emits its palette at input EOF, so
+# an infinite source buffers every frame forever → OOM. Real inputs are files, so they end naturally.
+run -f lavfi -i "testsrc=size=320x240:rate=30:duration=1" \
   -vf "fps=12,scale=160:-1:flags=lanczos,split[g0][g1];[g0]palettegen[p];[g1][p]paletteuse" \
   -loop 0 "$tmp/out.gif"
 ok "smoke encode (palettegen + paletteuse → gif — video.to_gif)"
