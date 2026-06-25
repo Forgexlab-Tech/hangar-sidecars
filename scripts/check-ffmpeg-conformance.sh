@@ -33,7 +33,7 @@ ok "encoder set conforms"
 # allowlist drift: `atempo` (speed) is NOT auto-included, so a dropped --enable-filter would ship a
 # speed-less binary silently. (transpose/hflip/vflip ARE auto-included, but asserting them is cheap.)
 filt="$("$bin" -hide_banner -filters | awk '{print $2}')"
-for req in overlay scale crop drawtext silencedetect transpose hflip vflip atempo palettegen paletteuse; do
+for req in overlay scale crop drawtext silencedetect transpose hflip vflip atempo afade asetrate palettegen paletteuse; do
   if ! echo "$filt" | grep -qw "$req"; then fail "required filter missing: $req"; fi
 done
 ok "filter set conforms"
