@@ -33,7 +33,7 @@ ok "encoder set conforms"
 # allowlist drift: `atempo` (speed) is NOT auto-included, so a dropped --enable-filter would ship a
 # speed-less binary silently. (transpose/hflip/vflip ARE auto-included, but asserting them is cheap.)
 filt="$("$bin" -hide_banner -filters | awk '{print $2}')"
-for req in overlay scale crop drawtext silencedetect transpose hflip vflip atempo afade asetrate palettegen paletteuse; do
+for req in overlay scale crop drawtext silencedetect transpose hflip vflip atempo afade asetrate loudnorm volume volumedetect palettegen paletteuse; do
   if ! echo "$filt" | grep -qw "$req"; then fail "required filter missing: $req"; fi
 done
 ok "filter set conforms"
@@ -66,6 +66,12 @@ run -f lavfi -i "testsrc=size=320x240:rate=30:duration=1" \
   -vf "fps=12,scale=160:-1:flags=lanczos,split[g0][g1];[g0]palettegen[p];[g1][p]paletteuse" \
   -loop 0 "$tmp/out.gif"
 ok "smoke encode (palettegen + paletteuse → gif — video.to_gif)"
+
+# audio.volume path (spec audio-volume): volume (Gain), loudnorm (Normalize EBU R128), volumedetect
+# (Peak measurement). None auto-included — a dropped --enable-filter would ship a broken mode.
+run -f lavfi -i "sine=frequency=440:sample_rate=44100:duration=1" \
+  -af "volume=-3dB,loudnorm=I=-14:TP=-1.5:LRA=11,volumedetect" -c:a pcm_s16le "$tmp/vol.wav"
+ok "smoke encode (volume + loudnorm + volumedetect — audio.volume)"
 
 # 4. Static-link check, macOS (spec §5.4) — system libs/frameworks only
 if [ "$(uname)" = Darwin ]; then

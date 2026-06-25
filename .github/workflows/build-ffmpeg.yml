@@ -37,6 +37,8 @@ env:
   # preserving video.speed/audio.speed (ENG-113/ENG-114) — NOT auto-included, needs explicit enable.
   # `asetrate` added (r12, ENG-114) for the pitch-SHIFTING audio.speed mode (keep_pitch=false):
   # asetrate=sr*factor,aresample=sr — natural varispeed (vinyl/nightcore/slowed). LGPL, not auto-included.
+  # `loudnorm` + `volume` + `volumedetect` added (r13, ENG) for audio.volume (Normalize EBU R128 /
+  # Gain / Peak). All LGPL, none auto-included. volumedetect measures the peak for Peak mode.
   COMMON_FLAGS: >-
     --disable-everything --disable-autodetect
     --disable-gpl --disable-nonfree
@@ -52,7 +54,7 @@ env:
     --enable-muxer=mov,mp4,matroska,webm,mp3,wav,flac,ipod,null,image2pipe,ogg,opus,gif
     --enable-parser=h264,hevc,vp9,av1,aac,mp3,vorbis,opus,png,mjpeg
     --enable-protocol=file,pipe
-    --enable-filter=overlay,scale,crop,trim,atrim,setpts,asetpts,colorchannelmixer,format,rotate,aresample,fps,split,asplit,select,aselect,concat,testsrc,sine,drawtext,silencedetect,transpose,hflip,vflip,null,atempo,xfade,afade,acrossfade,gblur,pad,anullsrc,setsar,palettegen,paletteuse,asetrate
+    --enable-filter=overlay,scale,crop,trim,atrim,setpts,asetpts,colorchannelmixer,format,rotate,aresample,fps,split,asplit,select,aselect,concat,testsrc,sine,drawtext,silencedetect,transpose,hflip,vflip,null,atempo,xfade,afade,acrossfade,gblur,pad,anullsrc,setsar,palettegen,paletteuse,asetrate,loudnorm,volume,volumedetect
     --enable-indev=lavfi
     --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb,aac_adtstoasc
     --enable-swscale --enable-swresample
