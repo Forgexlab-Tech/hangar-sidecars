@@ -39,6 +39,11 @@ env:
   # asetrate=sr*factor,aresample=sr — natural varispeed (vinyl/nightcore/slowed). LGPL, not auto-included.
   # `loudnorm` + `volume` + `volumedetect` added (r13, ENG) for audio.volume (Normalize EBU R128 /
   # Gain / Peak). All LGPL, none auto-included. volumedetect measures the peak for Peak mode.
+  # `amix` + `adelay` + `alimiter` added (r14, ENG) for audio.merge Mix mode: overlay N tracks
+  # simultaneously (amix=normalize=0), per-track start offset (adelay) + gain (volume), brick-wall
+  # limited to prevent clipping (alimiter). `aformat` made EXPLICIT here too — it's auto-included,
+  # but audio.merge's concat + mix normalize chains depend on it, so list it to keep the allowlist
+  # honest. All LGPL, none GPL. (audio.merge Concat mode already runs on r13 via acrossfade/concat.)
   COMMON_FLAGS: >-
     --disable-everything --disable-autodetect
     --disable-gpl --disable-nonfree
@@ -54,7 +59,7 @@ env:
     --enable-muxer=mov,mp4,matroska,webm,mp3,wav,flac,ipod,null,image2pipe,ogg,opus,gif
     --enable-parser=h264,hevc,vp9,av1,aac,mp3,vorbis,opus,png,mjpeg
     --enable-protocol=file,pipe
-    --enable-filter=overlay,scale,crop,trim,atrim,setpts,asetpts,colorchannelmixer,format,rotate,aresample,fps,split,asplit,select,aselect,concat,testsrc,sine,drawtext,silencedetect,transpose,hflip,vflip,null,atempo,xfade,afade,acrossfade,gblur,pad,anullsrc,setsar,palettegen,paletteuse,asetrate,loudnorm,volume,volumedetect
+    --enable-filter=overlay,scale,crop,trim,atrim,setpts,asetpts,colorchannelmixer,format,aformat,rotate,aresample,fps,split,asplit,select,aselect,concat,testsrc,sine,drawtext,silencedetect,transpose,hflip,vflip,null,atempo,xfade,afade,acrossfade,gblur,pad,anullsrc,setsar,palettegen,paletteuse,asetrate,loudnorm,volume,volumedetect,amix,adelay,alimiter
     --enable-indev=lavfi
     --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb,aac_adtstoasc
     --enable-swscale --enable-swresample
