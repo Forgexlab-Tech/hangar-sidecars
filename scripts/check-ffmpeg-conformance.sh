@@ -73,6 +73,15 @@ run -f lavfi -i "sine=frequency=440:sample_rate=44100:duration=1" \
   -af "volume=-3dB,loudnorm=I=-14:TP=-1.5:LRA=11,volumedetect" -c:a pcm_s16le "$tmp/vol.wav"
 ok "smoke encode (volume + loudnorm + volumedetect — audio.volume)"
 
+# audio.merge Mix path (spec audio-merge): overlay two tones, one with a start offset (adelay) +
+# gain (volume), summed without auto-attenuation (amix=normalize=0) and brick-wall limited
+# (alimiter). Exactly the graph `audio_merge::build_mix` emits. amix/adelay/alimiter were added
+# (r14) — none auto-included, so a dropped --enable-filter would ship a broken Mix mode.
+run -f lavfi -i "sine=frequency=440:duration=2" -f lavfi -i "sine=frequency=660:duration=2" \
+  -filter_complex "[0:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a0];[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,adelay=delays=500:all=1,volume=-6dB[a1];[a0][a1]amix=inputs=2:duration=longest:normalize=0[mx];[mx]alimiter=limit=0.95[aout]" \
+  -map "[aout]" -c:a pcm_s16le "$tmp/merge.wav"
+ok "smoke encode (amix + adelay + alimiter + aformat — audio.merge Mix)"
+
 # 4. Static-link check, macOS (spec §5.4) — system libs/frameworks only
 if [ "$(uname)" = Darwin ]; then
   if otool -L "$bin" | tail -n +2 | grep -vE '/usr/lib/|/System/'; then
