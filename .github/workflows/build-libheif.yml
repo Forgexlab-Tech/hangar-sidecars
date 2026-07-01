@@ -1,0 +1,100 @@
+# Builds MINIMAL decode-only libheif (libde265 only — NO x265/aom) as dynamic libs and
+# publishes them to a GitHub release consumed by the app repo's scripts/fetch-native-libs.sh
+# (same model as build-ffmpeg.yml / build-tesseract.yml). Decode-only by design: `libheif[core]`
+# drops the default `hevc` (x265) feature, so no GPL encoder is linked.
+# Upgrade path: bump release_tag, re-dispatch, then bump LIBHEIF_TAG in the fetch script.
+name: build-libheif
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish under"
+        required: true
+        default: "libheif-1.23.1-r1"
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            triplet: arm64-osx-dynamic
+            rust_triple: aarch64-apple-darwin
+          # last GitHub-hosted Intel macOS image (macos-13 was retired in 2025)
+          - os: macos-15-intel
+            triplet: x64-osx-dynamic
+            rust_triple: x86_64-apple-darwin
+          - os: windows-2022
+            triplet: x64-windows
+            rust_triple: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Build libheif (decode-only) via vcpkg
+        shell: bash
+        run: |
+          # macOS runners ship vcpkg but may lack the env var; bootstrap a fresh clone if needed.
+          if [ -z "${VCPKG_INSTALLATION_ROOT:-}" ] || [ ! -d "${VCPKG_INSTALLATION_ROOT:-/nonexistent}" ]; then
+            git clone --depth 1 https://github.com/microsoft/vcpkg "$HOME/vcpkg"
+            "$HOME/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+            echo "VCPKG_INSTALLATION_ROOT=$HOME/vcpkg" >> "$GITHUB_ENV"
+            export VCPKG_INSTALLATION_ROOT="$HOME/vcpkg"
+          fi
+          # [core] = no default features → no `hevc`/x265, no aom. libde265 is a core dep of libheif.
+          "$VCPKG_INSTALLATION_ROOT/vcpkg" install "libheif[core]" --triplet ${{ matrix.triplet }}
+      - name: Guard — assert NO x265/aom linked
+        shell: bash
+        run: |
+          root="$VCPKG_INSTALLATION_ROOT/installed/${{ matrix.triplet }}"
+          echo "== installed tree (heif/de265/x265/aom) =="
+          ls -R "$root/lib" "$root/bin" 2>/dev/null | grep -iE 'heif|de265|x265|aom' || true
+          # Fail if x265 or aom appear anywhere in the built tree.
+          if ls -R "$root" | grep -iE 'x265|libaom|aom\.'; then
+            echo "::error::GPL x265 or aom present — libheif[core] pulled an encoder" && exit 1
+          fi
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            heif=$(ls "$root/lib/"libheif*.dylib | head -1)
+            echo "== otool -L $heif =="
+            otool -L "$heif"
+            # Allow only system libs + our own de265/heif.
+            if otool -L "$heif" | tail -n +2 | grep -vE '/usr/lib/|/System/|@rpath|libde265|libheif'; then
+              echo "::error::unexpected non-system dylib in libheif" && exit 1
+            fi
+          fi
+      - name: Package (headers + libs + runtime)
+        shell: bash
+        run: |
+          root="$VCPKG_INSTALLATION_ROOT/installed/${{ matrix.triplet }}"
+          mkdir -p out/libheif/include out/libheif/lib out/libheif/bin
+          cp -R "$root/include/libheif" out/libheif/include/ 2>/dev/null || cp -R "$root/include/"* out/libheif/include/
+          cp -R "$root/lib/"* out/libheif/lib/ 2>/dev/null || true
+          cp -R "$root/bin/"* out/libheif/bin/ 2>/dev/null || true   # Windows runtime DLLs live in bin/
+          echo "== packaged tree =="
+          find out/libheif -maxdepth 2 -type f | head -40
+          tar -C out -czf "libheif-${{ matrix.rust_triple }}.tgz" libheif
+          ls -la "libheif-${{ matrix.rust_triple }}.tgz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libheif-${{ matrix.rust_triple }}
+          path: libheif-${{ matrix.rust_triple }}.tgz
+          if-no-files-found: error
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && shasum -a 256 * > SHA256SUMS && cat SHA256SUMS
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ inputs.release_tag }}" dist/* \
+            --repo "${{ github.repository }}" \
+            --title "Minimal decode-only libheif (libde265, no x265)" \
+            --notes "Built by build-libheif.yml via vcpkg libheif[core]. Decode-only, dynamic libs. Consumed by the app repo's scripts/fetch-native-libs.sh." \
+            || gh release upload "${{ inputs.release_tag }}" dist/* --clobber --repo "${{ github.repository }}"
