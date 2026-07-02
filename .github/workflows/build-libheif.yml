@@ -39,24 +39,24 @@ jobs:
             echo "VCPKG_INSTALLATION_ROOT=$HOME/vcpkg" >> "$GITHUB_ENV"
             export VCPKG_INSTALLATION_ROOT="$HOME/vcpkg"
           fi
-          # [core] = no default features → no `hevc`/x265, no aom. libde265 is a core dep of libheif.
-          "$VCPKG_INSTALLATION_ROOT/vcpkg" install "libheif[core]" --triplet ${{ matrix.triplet }}
-      - name: Guard — assert NO x265/aom linked
+          # [core] drops x265; [aom] adds libaom = AVIF decode (BSD-2, royalty-free AV1). No x265.
+          "$VCPKG_INSTALLATION_ROOT/vcpkg" install "libheif[core,aom]" --triplet ${{ matrix.triplet }}
+      - name: Guard — assert NO GPL x265/x264 linked (libaom/libde265 are expected)
         shell: bash
         run: |
           root="$VCPKG_INSTALLATION_ROOT/installed/${{ matrix.triplet }}"
-          echo "== installed tree (heif/de265/x265/aom) =="
-          ls -R "$root/lib" "$root/bin" 2>/dev/null | grep -iE 'heif|de265|x265|aom' || true
-          # Fail if x265 or aom appear anywhere in the built tree.
-          if ls -R "$root" | grep -iE 'x265|libaom|aom\.'; then
-            echo "::error::GPL x265 or aom present — libheif[core] pulled an encoder" && exit 1
+          echo "== installed tree (heif/de265/aom/x265) =="
+          ls -R "$root/lib" "$root/bin" 2>/dev/null | grep -iE 'heif|de265|aom|x26[45]' || true
+          # Fail only on the GPL encoders. libaom (AV1, BSD) + libde265 (HEVC decode) are intended.
+          if ls -R "$root" | grep -iE 'x265|x264|libx26'; then
+            echo "::error::GPL x265/x264 present — a HEVC/AVC encoder linked in" && exit 1
           fi
           if [[ "$RUNNER_OS" == "macOS" ]]; then
             heif=$(ls "$root/lib/"libheif*.dylib | head -1)
             echo "== otool -L $heif =="
             otool -L "$heif"
-            # Allow only system libs + our own de265/heif.
-            if otool -L "$heif" | tail -n +2 | grep -vE '/usr/lib/|/System/|@rpath|libde265|libheif'; then
+            # Allow system libs + our intended dynamic deps (de265 for HEVC, aom for AVIF).
+            if otool -L "$heif" | tail -n +2 | grep -vE '/usr/lib/|/System/|@rpath|libde265|libheif|libaom'; then
               echo "::error::unexpected non-system dylib in libheif" && exit 1
             fi
           fi
