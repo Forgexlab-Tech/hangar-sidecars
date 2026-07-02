@@ -57,9 +57,10 @@ tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 run() { "$bin" -hide_banner -loglevel error -y "$@" || fail "smoke encode failed: $*"; }
 run -f lavfi -i testsrc=size=320x240:rate=30 -t 1 -c:v libvpx-vp9 "$tmp/v.webm"
 run -f lavfi -i testsrc=size=320x240:rate=30 -t 1 -c:v libsvtav1  "$tmp/v.mp4"
-# AV1 software decode (libdav1d): decode the clip we just encoded to null. A build with only the
-# hwaccel `av1` stub (no libdav1d) fails here on the CI runner (no HW). Proves decode, not just presence.
-run -c:v libdav1d -i "$tmp/v.mp4" -f null -
+# AV1 software decode (libdav1d): force-decode the clip we just encoded, re-encoding one frame to
+# mjpeg (an enabled encoder — `-f null` would need the disabled wrapped_avframe encoder). A build with
+# only the hwaccel `av1` stub (no libdav1d) fails here on the CI runner (no HW). Proves decode works.
+run -c:v libdav1d -i "$tmp/v.mp4" -frames:v 1 -c:v mjpeg -f image2pipe "$tmp/av1frame.jpg"
 run -f lavfi -i sine=frequency=440:duration=1 -c:a aac        "$tmp/a.m4a"
 run -f lavfi -i sine=frequency=440:duration=1 -c:a libopus    "$tmp/a.webm"
 run -f lavfi -i sine=frequency=440:duration=1 -c:a libmp3lame "$tmp/a.mp3"
