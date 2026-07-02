@@ -32,6 +32,11 @@ jobs:
       - name: Build libheif (decode-only) via vcpkg
         shell: bash
         run: |
+          # aom's x86 SIMD needs nasm to assemble; the Intel macOS runner lacks it (arm64 uses NEON,
+          # Windows vcpkg fetches its own). Ensure nasm on macOS before building the aom feature.
+          if [[ "$RUNNER_OS" == "macOS" ]] && ! command -v nasm >/dev/null 2>&1; then
+            brew install nasm
+          fi
           # macOS runners ship vcpkg but may lack the env var; bootstrap a fresh clone if needed.
           if [ -z "${VCPKG_INSTALLATION_ROOT:-}" ] || [ ! -d "${VCPKG_INSTALLATION_ROOT:-/nonexistent}" ]; then
             git clone --depth 1 https://github.com/microsoft/vcpkg "$HOME/vcpkg"
