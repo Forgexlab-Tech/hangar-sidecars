@@ -42,7 +42,8 @@ ok "filter set conforms"
 # classified input can't ship without its decoder. Runtime names differ from configure flags for the
 # program-stream demuxer: `--enable-demuxer=mpegps` registers as `mpeg`.
 dec="$("$bin" -hide_banner -decoders | awk '{print $2}')"
-for req in h264 hevc av1 libdav1d prores mpeg2video mpeg4 msmpeg4v2 msmpeg4v3 alac pcm_s16be pcm_s24be mp2 ac3 eac3 wmav2 wmapro wmv1 wmv2 wmv3 vc1; do
+# Note runtime decoder names vs configure flags: `--enable-decoder=msmpeg4v3` registers as `msmpeg4`.
+for req in h264 hevc av1 libdav1d prores mpeg2video mpeg4 msmpeg4v2 msmpeg4 alac pcm_s16be pcm_s24be mp2 ac3 eac3 wmav2 wmapro wmv1 wmv2 wmv3 vc1; do
   if ! echo "$dec" | grep -qw "$req"; then fail "required decoder missing: $req"; fi
 done
 demux="$("$bin" -hide_banner -demuxers | awk '{print $2}')"
