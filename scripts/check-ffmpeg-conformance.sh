@@ -38,11 +38,27 @@ for req in overlay scale crop drawtext silencedetect transpose hflip vflip atemp
 done
 ok "filter set conforms"
 
+# 2c. Decoder + demuxer content (spec 2026-07-02-av-input-coverage) — guards allowlist drift so a
+# classified input can't ship without its decoder. Runtime names differ from configure flags for the
+# program-stream demuxer: `--enable-demuxer=mpegps` registers as `mpeg`.
+dec="$("$bin" -hide_banner -decoders | awk '{print $2}')"
+for req in h264 hevc av1 libdav1d prores mpeg2video mpeg4 msmpeg4v2 msmpeg4v3 alac pcm_s16be pcm_s24be mp2 ac3 eac3 wmav2 wmapro wmv1 wmv2 wmv3 vc1; do
+  if ! echo "$dec" | grep -qw "$req"; then fail "required decoder missing: $req"; fi
+done
+demux="$("$bin" -hide_banner -demuxers | awk '{print $2}')"
+for req in mov matroska mpegts mpeg avi asf aiff wav; do
+  if ! echo "$demux" | grep -qw "$req"; then fail "required demuxer missing: $req"; fi
+done
+ok "decoder + demuxer set conforms"
+
 # 3. Smoke encodes — software only, runner-safe (spec §5.3)
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 run() { "$bin" -hide_banner -loglevel error -y "$@" || fail "smoke encode failed: $*"; }
 run -f lavfi -i testsrc=size=320x240:rate=30 -t 1 -c:v libvpx-vp9 "$tmp/v.webm"
 run -f lavfi -i testsrc=size=320x240:rate=30 -t 1 -c:v libsvtav1  "$tmp/v.mp4"
+# AV1 software decode (libdav1d): decode the clip we just encoded to null. A build with only the
+# hwaccel `av1` stub (no libdav1d) fails here on the CI runner (no HW). Proves decode, not just presence.
+run -c:v libdav1d -i "$tmp/v.mp4" -f null -
 run -f lavfi -i sine=frequency=440:duration=1 -c:a aac        "$tmp/a.m4a"
 run -f lavfi -i sine=frequency=440:duration=1 -c:a libopus    "$tmp/a.webm"
 run -f lavfi -i sine=frequency=440:duration=1 -c:a libmp3lame "$tmp/a.mp3"
