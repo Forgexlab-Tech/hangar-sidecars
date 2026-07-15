@@ -24,7 +24,7 @@ enc="$("$bin" -hide_banner -encoders)"
 for banned in libx264 libx265 libopenh264; do
   if echo "$enc" | grep -qw "$banned"; then fail "banned encoder present: $banned"; fi
 done
-for req in libsvtav1 libvpx-vp9 libmp3lame libopus aac flac alac pcm_s16le mjpeg gif "$@"; do
+for req in libsvtav1 libvpx-vp9 libmp3lame libopus aac flac alac pcm_s16le prores_ks mjpeg gif "$@"; do
   if ! echo "$enc" | grep -qw "$req"; then fail "required encoder missing: $req"; fi
 done
 ok "encoder set conforms"
@@ -68,8 +68,11 @@ run -f lavfi -i sine=frequency=440:duration=1 -c:a libmp3lame "$tmp/a.mp3"
 # not auto-included — a dropped --enable-encoder would ship a broken lossless mode.
 run -f lavfi -i sine=frequency=440:duration=1 -c:a flac -compression_level 8 "$tmp/a.flac"
 run -f lavfi -i sine=frequency=440:duration=1 -c:a alac -f ipod "$tmp/a.m4a"
+# video.convert ProRes output (r17): prores_ks into MOV at 10-bit 4:2:2. Software encoder, not
+# auto-included — a dropped --enable-encoder would ship a broken ProRes mode.
+run -f lavfi -i testsrc=size=320x240:rate=30 -t 1 -c:v prores_ks -profile:v 2 -vendor apl0 -pix_fmt yuv422p10le -f mov "$tmp/v.mov"
 run -f lavfi -i testsrc=size=320x240:rate=30 -frames:v 1 -vf scale=320:-2 -c:v mjpeg -f image2pipe "$tmp/p.jpg"
-ok "smoke encodes (VP9, AV1, AAC, Opus, MP3, FLAC, ALAC, poster JPEG)"
+ok "smoke encodes (VP9, AV1, AAC, Opus, MP3, FLAC, ALAC, ProRes, poster JPEG)"
 
 # video.join transition path (spec video-join): exercises xfade + acrossfade + gblur + pad +
 # anullsrc + setsar in one graph, so a build that drops any of them fails here instead of at
