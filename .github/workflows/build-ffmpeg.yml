@@ -44,6 +44,10 @@ env:
   # limited to prevent clipping (alimiter). `aformat` made EXPLICIT here too — it's auto-included,
   # but audio.merge's concat + mix normalize chains depend on it, so list it to keep the allowlist
   # honest. All LGPL, none GPL. (audio.merge Concat mode already runs on r13 via acrossfade/concat.)
+  # `flac` + `alac` ENCODERS added (r16) for audio.convert lossless output (FLAC archival, ALAC for
+  # Apple/.m4a). Both are FFmpeg-native encoders (no external lib, unlike libmp3lame/libopus) and LGPL
+  # — no GPL/nonfree exposure. The `flac` + `ipod` muxers were already enabled (decode side shipped
+  # since r15); only the encoders were missing. NOT auto-included under --disable-everything.
   COMMON_FLAGS: >-
     --disable-everything --disable-autodetect
     --disable-gpl --disable-nonfree
@@ -53,7 +57,7 @@ env:
     --pkg-config-flags=--static
     --enable-zlib
     --enable-libsvtav1 --enable-libvpx --enable-libmp3lame --enable-libopus --enable-libfreetype --enable-libharfbuzz --enable-libdav1d
-    --enable-encoder=libsvtav1,libvpx_vp9,libmp3lame,libopus,aac,pcm_s16le,mjpeg,gif
+    --enable-encoder=libsvtav1,libvpx_vp9,libmp3lame,libopus,aac,flac,alac,pcm_s16le,mjpeg,gif
     --enable-decoder=h264,hevc,vp9,av1,libdav1d,mp3,mp2,aac,ac3,eac3,opus,vorbis,alac,pcm_s16le,pcm_s16be,pcm_s24be,pcm_f32le,pcm_f64le,flac,prores,mpeg2video,mpeg4,msmpeg4v2,msmpeg4v3,wmav2,wmapro,wmv1,wmv2,wmv3,vc1,png,mjpeg,wrapped_avframe
     --enable-demuxer=mov,matroska,mp3,wav,aiff,flac,mpegts,mpegps,avi,asf,ogg,image2
     --enable-muxer=mov,mp4,matroska,webm,mp3,wav,flac,ipod,null,image2pipe,ogg,opus,gif
