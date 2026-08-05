@@ -43,11 +43,11 @@ ok "filter set conforms"
 # program-stream demuxer: `--enable-demuxer=mpegps` registers as `mpeg`.
 dec="$("$bin" -hide_banner -decoders | awk '{print $2}')"
 # Note runtime decoder names vs configure flags: `--enable-decoder=msmpeg4v3` registers as `msmpeg4`.
-for req in h264 hevc av1 libdav1d prores mpeg2video mpeg4 msmpeg4v2 msmpeg4 alac pcm_s16be pcm_s24be mp2 ac3 eac3 wmav2 wmapro wmv1 wmv2 wmv3 vc1; do
+for req in h264 hevc av1 libdav1d prores mpeg2video mpeg4 msmpeg4v2 msmpeg4 alac pcm_s16be pcm_s24be mp2 ac3 eac3 wmav2 wmapro wmv1 wmv2 wmv3 vc1 dsd_lsbf dsd_msbf dsd_lsbf_planar dsd_msbf_planar dst; do
   if ! echo "$dec" | grep -qw "$req"; then fail "required decoder missing: $req"; fi
 done
 demux="$("$bin" -hide_banner -demuxers | awk '{print $2}')"
-for req in mov matroska mpegts mpeg avi asf aiff wav; do
+for req in mov matroska mpegts mpeg avi asf aiff wav iff dsf; do
   if ! echo "$demux" | grep -qw "$req"; then fail "required demuxer missing: $req"; fi
 done
 ok "decoder + demuxer set conforms"
@@ -68,11 +68,19 @@ run -f lavfi -i sine=frequency=440:duration=1 -c:a libmp3lame "$tmp/a.mp3"
 # not auto-included — a dropped --enable-encoder would ship a broken lossless mode.
 run -f lavfi -i sine=frequency=440:duration=1 -c:a flac -compression_level 8 "$tmp/a.flac"
 run -f lavfi -i sine=frequency=440:duration=1 -c:a alac -f ipod "$tmp/a.m4a"
+# Minimal, synthetic DSD64/DSF silence: fixed 92-byte header followed by one 4096-byte block per
+# stereo channel. This stays redistributable and proves demux + DSD decode + 88.2 kHz/24-bit FLAC
+# conversion without downloading a media fixture during conformance.
+printf '\x44\x53\x44\x20\x1c\x00\x00\x00\x00\x00\x00\x00\x5c\x20\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x66\x6d\x74\x20\x34\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x02\x00\x00\x00\x00\x11\x2b\x00\x01\x00\x00\x00\x00\x80\x00\x00\x00\x00\x00\x00\x00\x10\x00\x00\x00\x00\x00\x00\x64\x61\x74\x61\x0c\x20\x00\x00\x00\x00\x00\x00' > "$tmp/silence.dsf"
+dd if=/dev/zero bs=8192 count=1 2>/dev/null | tr '\000' '\151' >> "$tmp/silence.dsf"
+run -i "$tmp/silence.dsf" -ar 88200 -sample_fmt s32 -c:a flac "$tmp/dsd.flac"
+dsd_probe="$($bin -hide_banner -i "$tmp/dsd.flac" 2>&1 || true)"
+echo "$dsd_probe" | grep -q "88200 Hz, stereo, s32 (24 bit)" || fail "DSD→FLAC output shape is wrong"
 # video.convert ProRes output (r17): prores_ks into MOV at 10-bit 4:2:2. Software encoder, not
 # auto-included — a dropped --enable-encoder would ship a broken ProRes mode.
 run -f lavfi -i testsrc=size=320x240:rate=30 -t 1 -c:v prores_ks -profile:v 2 -vendor apl0 -pix_fmt yuv422p10le -f mov "$tmp/v.mov"
 run -f lavfi -i testsrc=size=320x240:rate=30 -frames:v 1 -vf scale=320:-2 -c:v mjpeg -f image2pipe "$tmp/p.jpg"
-ok "smoke encodes (VP9, AV1, AAC, Opus, MP3, FLAC, ALAC, ProRes, poster JPEG)"
+ok "smoke encodes (VP9, AV1, AAC, Opus, MP3, FLAC, ALAC, DSD→FLAC, ProRes, poster JPEG)"
 
 # video.join transition path (spec video-join): exercises xfade + acrossfade + gblur + pad +
 # anullsrc + setsar in one graph, so a build that drops any of them fails here instead of at
