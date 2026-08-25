@@ -67,14 +67,14 @@ env:
     --disable-network --disable-debug
     --pkg-config-flags=--static
     --enable-zlib
-    --enable-libsvtav1 --enable-libvpx --enable-libmp3lame --enable-libopus --enable-libfreetype --enable-libharfbuzz --enable-libdav1d --enable-libvmaf
+    --enable-libsvtav1 --enable-libvpx --enable-libmp3lame --enable-libopus --enable-libfreetype --enable-libharfbuzz --enable-libdav1d
     --enable-encoder=libsvtav1,libvpx_vp9,libmp3lame,libopus,aac,flac,alac,pcm_s16le,prores_ks,mjpeg,gif
     --enable-decoder=h264,hevc,vp9,av1,libdav1d,mp3,mp2,aac,ac3,eac3,opus,vorbis,alac,pcm_u8,pcm_s16le,pcm_s16be,pcm_s24le,pcm_s24be,pcm_s32le,pcm_f32le,pcm_f64le,pcm_alaw,pcm_mulaw,adpcm_ms,adpcm_ima_wav,flac,dsd_lsbf,dsd_msbf,dsd_lsbf_planar,dsd_msbf_planar,dst,prores,mpeg2video,mpeg4,msmpeg4v2,msmpeg4v3,wmav2,wmapro,wmv1,wmv2,wmv3,vc1,png,mjpeg,wrapped_avframe
     --enable-demuxer=mov,matroska,mp3,wav,aiff,flac,iff,dsf,mpegts,mpegps,avi,asf,ogg,image2
     --enable-muxer=mov,mp4,matroska,webm,mp3,wav,flac,ipod,null,image2pipe,ogg,opus,gif
     --enable-parser=h264,hevc,vp9,av1,aac,ac3,mp3,vorbis,opus,mpeg4video,mpegvideo,vc1,png,mjpeg
     --enable-protocol=file,pipe
-    --enable-filter=overlay,scale,crop,trim,atrim,settb,setpts,asetpts,colorchannelmixer,format,aformat,rotate,aresample,fps,split,asplit,select,aselect,concat,testsrc,testsrc2,sine,drawtext,silencedetect,transpose,hflip,vflip,null,atempo,xfade,afade,acrossfade,gblur,pad,anullsrc,setsar,palettegen,paletteuse,asetrate,loudnorm,volume,volumedetect,amix,adelay,alimiter,libvmaf
+    --enable-filter=overlay,scale,crop,trim,atrim,settb,setpts,asetpts,colorchannelmixer,format,aformat,rotate,aresample,fps,split,asplit,select,aselect,concat,testsrc,sine,drawtext,silencedetect,transpose,hflip,vflip,null,atempo,xfade,afade,acrossfade,gblur,pad,anullsrc,setsar,palettegen,paletteuse,asetrate,loudnorm,volume,volumedetect,amix,adelay,alimiter
     --enable-indev=lavfi
     --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb,aac_adtstoasc
     --enable-swscale --enable-swresample
@@ -97,7 +97,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build tools
         run: brew install nasm pkg-config
-      - name: Static codec + quality-analysis deps via vcpkg
+      - name: Static codec deps via vcpkg
         shell: bash
         run: |
           if [ -z "${VCPKG_INSTALLATION_ROOT:-}" ] || [ ! -d "${VCPKG_INSTALLATION_ROOT:-/nonexistent}" ]; then
@@ -109,7 +109,7 @@ jobs:
           # freetype + harfbuzz: drawtext's hard deps in FFmpeg 7.x (ENG-49). vcpkg's ports
           # carry the static Requires.private (zlib/bz2/brotli/png + harfbuzz↔freetype) so
           # --pkg-config-flags=--static links them.
-          "$VCPKG_INSTALLATION_ROOT/vcpkg" install libvpx mp3lame opus freetype harfbuzz dav1d libvmaf --triplet ${{ matrix.triplet }}
+          "$VCPKG_INSTALLATION_ROOT/vcpkg" install libvpx mp3lame opus freetype harfbuzz dav1d --triplet ${{ matrix.triplet }}
       - name: SVT-AV1 static (cmake, pinned)
         shell: bash
         run: |
@@ -178,7 +178,6 @@ jobs:
             mingw-w64-x86_64-libvpx mingw-w64-x86_64-lame
             mingw-w64-x86_64-opus mingw-w64-x86_64-libvpl mingw-w64-x86_64-zlib mingw-w64-x86_64-dav1d
             mingw-w64-x86_64-freetype mingw-w64-x86_64-harfbuzz
-            mingw-w64-x86_64-vmaf
       - name: SVT-AV1 static (cmake, pinned — MSYS2's rolling svt-av1 is too new for FFmpeg 7.1's wrapper)
         run: |
           curl -fsSL "https://gitlab.com/AOMediaCodec/SVT-AV1/-/archive/v${SVTAV1_VERSION}/SVT-AV1-v${SVTAV1_VERSION}.tar.gz" | tar xz
@@ -249,5 +248,5 @@ jobs:
           gh release create "${{ inputs.release_tag }}" dist/* \
             --repo "${{ github.repository }}" \
             --title "LGPL FFmpeg sidecar binaries" \
-            --notes "Self-built LGPL static FFmpeg ${{ inputs.ffmpeg_version }} (spec docs/specs/ffmpeg-sidecar-build.md; allowlist PACKAGES.md §4.3, including BSD-2-Clause-Patent libvmaf quality analysis). No GPL/nonfree components; HW-only H.264/HEVC. Consumed by scripts/fetch-native-libs.sh." \
+            --notes "Self-built LGPL static FFmpeg ${{ inputs.ffmpeg_version }} (spec docs/specs/ffmpeg-sidecar-build.md; allowlist PACKAGES.md §4.3). No GPL/nonfree components; HW-only H.264/HEVC. Consumed by scripts/fetch-native-libs.sh." \
             || gh release upload "${{ inputs.release_tag }}" dist/* --clobber --repo "${{ github.repository }}"

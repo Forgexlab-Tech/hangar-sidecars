@@ -10,8 +10,8 @@ statically-linked native tools the app ships alongside its binary.
 ## What it builds
 
 - **`build-ffmpeg.yml`** — a static, **LGPL-only** FFmpeg (no GPL/nonfree components; HW-only
-  H.264/HEVC via VideoToolbox / NVENC / QSV / AMF) with BSD-2-Clause-Patent `libvmaf` for
-  full-reference compression quality checks and explicit common WAV/AIFF/DSD input coverage.
+  H.264/HEVC via VideoToolbox / NVENC / QSV / AMF) with explicit common WAV/AIFF/DSD input
+  coverage.
   Manually dispatched (`workflow_dispatch`);
   publishes `ffmpeg-<version>-rN` releases (mac arm64/x64 + Windows x64). License conformance is
   CI-enforced by `scripts/check-ffmpeg-conformance.sh` (license flags, banned/required encoders,

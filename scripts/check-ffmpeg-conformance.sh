@@ -33,7 +33,7 @@ ok "encoder set conforms"
 # allowlist drift: `atempo` (speed) is NOT auto-included, so a dropped --enable-filter would ship a
 # speed-less binary silently. (transpose/hflip/vflip ARE auto-included, but asserting them is cheap.)
 filt="$("$bin" -hide_banner -filters | awk '{print $2}')"
-for req in overlay scale crop drawtext silencedetect transpose hflip vflip atempo afade asetrate loudnorm volume volumedetect palettegen paletteuse testsrc2 settb libvmaf; do
+for req in overlay scale crop drawtext silencedetect transpose hflip vflip atempo afade asetrate loudnorm volume volumedetect palettegen paletteuse; do
   if ! echo "$filt" | grep -qw "$req"; then fail "required filter missing: $req"; fi
 done
 ok "filter set conforms"
@@ -122,19 +122,6 @@ run -f lavfi -i "sine=frequency=440:duration=2" -f lavfi -i "sine=frequency=660:
   -filter_complex "[0:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a0];[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,adelay=delays=500:all=1,volume=-6dB[a1];[a0][a1]amix=inputs=2:duration=longest:normalize=0[mx];[mx]alimiter=limit=0.95[aout]" \
   -map "[aout]" -c:a pcm_s16le "$tmp/merge.wav"
 ok "smoke encode (amix + adelay + alimiter + aformat — audio.merge Mix)"
-
-# video.compress quality gate: compare a deliberately compressed clip with its higher-quality
-# reference using the codec-evaluation NEG model and require a real per-frame JSON report. This
-# proves libvmaf, its embedded model, settb/setpts/format, decoding, and the null sink together.
-run -f lavfi -i "testsrc2=size=320x240:rate=24:duration=1" \
-  -c:v libvpx-vp9 -crf 18 -b:v 0 "$tmp/vmaf-reference.webm"
-run -i "$tmp/vmaf-reference.webm" -c:v libvpx-vp9 -crf 40 -b:v 0 \
-  "$tmp/vmaf-distorted.webm"
-run -i "$tmp/vmaf-distorted.webm" -i "$tmp/vmaf-reference.webm" \
-  -lavfi "[0:v]settb=AVTB,setpts=PTS-STARTPTS,format=yuv420p[dist];[1:v]settb=AVTB,setpts=PTS-STARTPTS,format=yuv420p[ref];[dist][ref]libvmaf=model='version=vmaf_v0.6.1neg':log_fmt=json:log_path='$tmp/vmaf.json':eof_action=endall:ts_sync_mode=nearest" \
-  -an -f null -
-if ! grep -q '"vmaf"' "$tmp/vmaf.json"; then fail "libvmaf NEG report missing frame scores"; fi
-ok "quality analysis (libvmaf NEG JSON — video.compress)"
 
 # 4. Static-link check, macOS (spec §5.4) — system libs/frameworks only
 if [ "$(uname)" = Darwin ]; then
