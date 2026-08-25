@@ -33,7 +33,7 @@ ok "encoder set conforms"
 # allowlist drift: `atempo` (speed) is NOT auto-included, so a dropped --enable-filter would ship a
 # speed-less binary silently. (transpose/hflip/vflip ARE auto-included, but asserting them is cheap.)
 filt="$("$bin" -hide_banner -filters | awk '{print $2}')"
-for req in overlay scale crop drawtext silencedetect transpose hflip vflip atempo afade asetrate loudnorm volume volumedetect palettegen paletteuse; do
+for req in overlay scale crop drawtext silencedetect transpose hflip vflip atempo afade asetrate loudnorm volume volumedetect palettegen paletteuse testsrc2 settb libvmaf; do
   if ! echo "$filt" | grep -qw "$req"; then fail "required filter missing: $req"; fi
 done
 ok "filter set conforms"
@@ -43,7 +43,7 @@ ok "filter set conforms"
 # program-stream demuxer: `--enable-demuxer=mpegps` registers as `mpeg`.
 dec="$("$bin" -hide_banner -decoders | awk '{print $2}')"
 # Note runtime decoder names vs configure flags: `--enable-decoder=msmpeg4v3` registers as `msmpeg4`.
-for req in h264 hevc av1 libdav1d prores mpeg2video mpeg4 msmpeg4v2 msmpeg4 alac pcm_s16be pcm_s24be mp2 ac3 eac3 wmav2 wmapro wmv1 wmv2 wmv3 vc1 dsd_lsbf dsd_msbf dsd_lsbf_planar dsd_msbf_planar dst; do
+for req in h264 hevc av1 libdav1d prores mpeg2video mpeg4 msmpeg4v2 msmpeg4 alac pcm_u8 pcm_s16le pcm_s16be pcm_s24le pcm_s24be pcm_s32le pcm_f32le pcm_f64le pcm_alaw pcm_mulaw adpcm_ms adpcm_ima_wav mp2 ac3 eac3 wmav2 wmapro wmv1 wmv2 wmv3 vc1 dsd_lsbf dsd_msbf dsd_lsbf_planar dsd_msbf_planar dst; do
   if ! echo "$dec" | grep -qw "$req"; then fail "required decoder missing: $req"; fi
 done
 demux="$("$bin" -hide_banner -demuxers | awk '{print $2}')"
@@ -68,6 +68,14 @@ run -f lavfi -i sine=frequency=440:duration=1 -c:a libmp3lame "$tmp/a.mp3"
 # not auto-included — a dropped --enable-encoder would ship a broken lossless mode.
 run -f lavfi -i sine=frequency=440:duration=1 -c:a flac -compression_level 8 "$tmp/a.flac"
 run -f lavfi -i sine=frequency=440:duration=1 -c:a alac -f ipod "$tmp/a.m4a"
+# Minimal mono 24-bit little-endian PCM WAV. Its four samples include both signed extrema; the
+# fixture is hand-authored so the test does not depend on the pcm_s24le encoder it is meant to
+# qualify as an input decoder. Convert directly to FLAC and retain all 24 bits.
+printf '\x52\x49\x46\x46\x30\x00\x00\x00\x57\x41\x56\x45\x66\x6d\x74\x20\x10\x00\x00\x00\x01\x00\x01\x00\x40\x1f\x00\x00\xc0\x5d\x00\x00\x03\x00\x18\x00\x64\x61\x74\x61\x0c\x00\x00\x00\x00\x00\x00\xff\xff\x7f\x00\x00\x80\x00\x00\x00' > "$tmp/pcm-s24le.wav"
+run -i "$tmp/pcm-s24le.wav" -c:a flac -compression_level 8 "$tmp/pcm-s24le.flac"
+wav_probe="$($bin -hide_banner -i "$tmp/pcm-s24le.flac" 2>&1 || true)"
+echo "$wav_probe" | grep -q "8000 Hz, mono, s32 (24 bit)" || fail "24-bit WAV→FLAC output shape is wrong"
+ok "24-bit PCM WAV input retains its precision in FLAC"
 # Minimal, synthetic DSD64/DSF silence: fixed 92-byte header followed by one 4096-byte block per
 # stereo channel. This stays redistributable and proves demux + DSD decode + 88.2 kHz/24-bit FLAC
 # conversion without downloading a media fixture during conformance.
@@ -114,6 +122,19 @@ run -f lavfi -i "sine=frequency=440:duration=2" -f lavfi -i "sine=frequency=660:
   -filter_complex "[0:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a0];[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,adelay=delays=500:all=1,volume=-6dB[a1];[a0][a1]amix=inputs=2:duration=longest:normalize=0[mx];[mx]alimiter=limit=0.95[aout]" \
   -map "[aout]" -c:a pcm_s16le "$tmp/merge.wav"
 ok "smoke encode (amix + adelay + alimiter + aformat — audio.merge Mix)"
+
+# video.compress quality gate: compare a deliberately compressed clip with its higher-quality
+# reference using the codec-evaluation NEG model and require a real per-frame JSON report. This
+# proves libvmaf, its embedded model, settb/setpts/format, decoding, and the null sink together.
+run -f lavfi -i "testsrc2=size=320x240:rate=24:duration=1" \
+  -c:v libvpx-vp9 -crf 18 -b:v 0 "$tmp/vmaf-reference.webm"
+run -i "$tmp/vmaf-reference.webm" -c:v libvpx-vp9 -crf 40 -b:v 0 \
+  "$tmp/vmaf-distorted.webm"
+run -i "$tmp/vmaf-distorted.webm" -i "$tmp/vmaf-reference.webm" \
+  -lavfi "[0:v]settb=AVTB,setpts=PTS-STARTPTS,format=yuv420p[dist];[1:v]settb=AVTB,setpts=PTS-STARTPTS,format=yuv420p[ref];[dist][ref]libvmaf=model='version=vmaf_v0.6.1neg':log_fmt=json:log_path='$tmp/vmaf.json':eof_action=endall:ts_sync_mode=nearest" \
+  -an -f null -
+if ! grep -q '"vmaf"' "$tmp/vmaf.json"; then fail "libvmaf NEG report missing frame scores"; fi
+ok "quality analysis (libvmaf NEG JSON — video.compress)"
 
 # 4. Static-link check, macOS (spec §5.4) — system libs/frameworks only
 if [ "$(uname)" = Darwin ]; then
