@@ -16,7 +16,12 @@ for path in root.rglob('*'):
     if 'x86_64' not in kind:
         raise SystemExit(f'Wrong architecture: {path}: {kind}')
     headers = subprocess.check_output(['otool', '-l', str(path)], text=True)
-    versions = re.findall(r'^\s*(?:minos|version) (\d+\.\d+(?:\.\d+)?)$', headers, re.M)
+    versions = []
+    for block in re.split(r'Load command \d+', headers):
+        if re.search(r'cmd LC_BUILD_VERSION\b', block):
+            versions.extend(re.findall(r'^\s*minos (\d+\.\d+(?:\.\d+)?)$', block, re.M))
+        elif re.search(r'cmd LC_VERSION_MIN_MACOSX\b', block):
+            versions.extend(re.findall(r'^\s*version (\d+\.\d+(?:\.\d+)?)$', block, re.M))
     if not versions:
         raise SystemExit(f'Missing deployment target: {path}')
     for version in versions:
