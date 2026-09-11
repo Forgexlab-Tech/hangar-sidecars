@@ -1,0 +1,291 @@
+name: Intel macOS 13.4 candidate
+on:
+  push:
+    branches: [codex/intel-macos-134]
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  # sha256 of ffmpeg-<ffmpeg_version>.tar.xz from ffmpeg.org — update on version bumps
+  FFMPEG_SHA256: "733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1"
+  SVTAV1_VERSION: "2.3.0"
+  # The LGPL allowlist (PACKAGES.md §4.3, normative). `sine` filter added for the
+  # conformance gate's audio smoke encodes (documented PACKAGES deviation). `drawtext`
+  # + `--enable-libfreetype --enable-libharfbuzz` added for video.watermark text marks
+  # (ENG-49). FreeType is taken under the FTL (BSD-style, LGPL-compatible — not GPL);
+  # HarfBuzz is MIT. Both are LGPL-compatible. HarfBuzz is REQUIRED, not optional: FFmpeg
+  # 7.x's `drawtext` filter has a hard harfbuzz dependency — with only libfreetype, configure
+  # silently drops drawtext (verified on the r4 build). No fontconfig: we always pass an
+  # explicit `fontfile=`, keeping font lookup deterministic + local. `asplit,select,aselect`
+  # added (r7, ENG-105) for the Trim Studio's multi-cut concat filtergraph — core filters, no
+  # external dep: a filtergraph can't reference [0:v]/[0:a] twice, so each fan-out needs asplit.
+  # `silencedetect` added (r8, ENG-107) for auto-trim. `transpose,hflip,vflip,null` made EXPLICIT
+  # (r9): FFmpeg auto-includes them even under --disable-everything, so r8 already shipped them and
+  # video.rotate (ENG-111) runs on r8 — but listing them keeps this allowlist honest + matches
+  # PACKAGES §4.3 (the drift caused real confusion). `atempo` added (r9, ENG-112) for pitch-
+  # preserving video.speed/audio.speed (ENG-113/ENG-114) — NOT auto-included, needs explicit enable.
+  # `asetrate` added (r12, ENG-114) for the pitch-SHIFTING audio.speed mode (keep_pitch=false):
+  # asetrate=sr*factor,aresample=sr — natural varispeed (vinyl/nightcore/slowed). LGPL, not auto-included.
+  # `loudnorm` + `volume` + `volumedetect` added (r13, ENG) for audio.volume (Normalize EBU R128 /
+  # Gain / Peak). All LGPL, none auto-included. volumedetect measures the peak for Peak mode.
+  # `amix` + `adelay` + `alimiter` added (r14, ENG) for audio.merge Mix mode: overlay N tracks
+  # simultaneously (amix=normalize=0), per-track start offset (adelay) + gain (volume), brick-wall
+  # limited to prevent clipping (alimiter). `aformat` made EXPLICIT here too — it's auto-included,
+  # but audio.merge's concat + mix normalize chains depend on it, so list it to keep the allowlist
+  # honest. All LGPL, none GPL. (audio.merge Concat mode already runs on r13 via acrossfade/concat.)
+  # `flac` + `alac` ENCODERS added (r16) for audio.convert lossless output (FLAC archival, ALAC for
+  # Apple/.m4a). Both are FFmpeg-native encoders (no external lib, unlike libmp3lame/libopus) and LGPL
+  # — no GPL/nonfree exposure. The `flac` + `ipod` muxers were already enabled (decode side shipped
+  # since r15); only the encoders were missing. NOT auto-included under --disable-everything.
+  # `prores_ks` ENCODER added (r17) for video.convert ProRes output (Apple pro intermediate — FCP/
+  # Premiere/Resolve). FFmpeg-native, LGPL (no external lib, no GPL/nonfree). The `mov` muxer +
+  # `yuv422p10le` pixel format were already present; only the encoder was missing. Software encoder
+  # (no GPU needed, unlike h264/hevc_videotoolbox). NOT auto-included under --disable-everything.
+  # DSD decoders + DSF/IFF demuxers added (r18) for audio.convert DSD-to-FLAC. `dsf` handles raw
+  # DSD Stream Files; `iff` handles DSDIFF/DFF containers; `dst` handles their optional lossless
+  # compression. All are FFmpeg-native and LGPL, with no external dependency. The conformance gate
+  # converts a synthetic DSD64 DSF fixture and separately requires the DST decoder at runtime.
+  # Common WAV input decoders added (r19): unsigned 8-bit and signed little-endian 16/24/32-bit
+  # PCM, 32/64-bit float, G.711 A-law/mu-law, and Microsoft/IMA WAV ADPCM. They are native LGPL
+  # components with no external dependency. Conformance proves direct 24-bit WAV-to-FLAC fidelity.
+  COMMON_FLAGS: >-
+    --disable-everything --disable-autodetect
+    --disable-gpl --disable-nonfree
+    --disable-shared --enable-static
+    --disable-doc --disable-ffplay --disable-ffprobe
+    --disable-network --disable-debug
+    --pkg-config-flags=--static
+    --enable-zlib
+    --enable-libsvtav1 --enable-libvpx --enable-libmp3lame --enable-libopus --enable-libfreetype --enable-libharfbuzz --enable-libdav1d
+    --enable-encoder=libsvtav1,libvpx_vp9,libmp3lame,libopus,aac,flac,alac,pcm_s16le,prores_ks,mjpeg,gif
+    --enable-decoder=h264,hevc,vp9,av1,libdav1d,mp3,mp2,aac,ac3,eac3,opus,vorbis,alac,pcm_u8,pcm_s16le,pcm_s16be,pcm_s24le,pcm_s24be,pcm_s32le,pcm_f32le,pcm_f64le,pcm_alaw,pcm_mulaw,adpcm_ms,adpcm_ima_wav,flac,dsd_lsbf,dsd_msbf,dsd_lsbf_planar,dsd_msbf_planar,dst,prores,mpeg2video,mpeg4,msmpeg4v2,msmpeg4v3,wmav2,wmapro,wmv1,wmv2,wmv3,vc1,png,mjpeg,wrapped_avframe
+    --enable-demuxer=mov,matroska,mp3,wav,aiff,flac,iff,dsf,mpegts,mpegps,avi,asf,ogg,image2
+    --enable-muxer=mov,mp4,matroska,webm,mp3,wav,flac,ipod,null,image2pipe,ogg,opus,gif
+    --enable-parser=h264,hevc,vp9,av1,aac,ac3,mp3,vorbis,opus,mpeg4video,mpegvideo,vc1,png,mjpeg
+    --enable-protocol=file,pipe
+    --enable-filter=overlay,scale,crop,trim,atrim,settb,setpts,asetpts,colorchannelmixer,format,aformat,rotate,aresample,fps,split,asplit,select,aselect,concat,testsrc,sine,drawtext,silencedetect,transpose,hflip,vflip,null,atempo,xfade,afade,acrossfade,gblur,pad,anullsrc,setsar,palettegen,paletteuse,asetrate,loudnorm,volume,volumedetect,amix,adelay,alimiter
+    --enable-indev=lavfi
+    --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb,aac_adtstoasc
+    --enable-swscale --enable-swresample
+
+jobs:
+  build-macos:
+    runs-on: macos-15-intel
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '13.4'
+      VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/triplets
+      VCPKG_BINARY_SOURCES: clear
+    strategy:
+      matrix:
+        include:
+          - triplet: x64-osx-134
+            rust_triple: x86_64-apple-darwin
+            exe: tesseract
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build tools
+        run: brew install nasm pkg-config
+      - name: Static codec deps via vcpkg
+        shell: bash
+        run: |
+          unset VCPKG_INSTALLATION_ROOT
+          if true; then
+            git init "$GITHUB_WORKSPACE/vcpkg"
+            git -C "$GITHUB_WORKSPACE/vcpkg" remote add origin https://github.com/microsoft/vcpkg
+            git -C "$GITHUB_WORKSPACE/vcpkg" fetch --depth 1 origin 52d80838fb40c755b1615fbc9c7b994a33742a22
+            git -C "$GITHUB_WORKSPACE/vcpkg" checkout --detach FETCH_HEAD
+            "$GITHUB_WORKSPACE/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+            echo "VCPKG_INSTALLATION_ROOT=$GITHUB_WORKSPACE/vcpkg" >> "$GITHUB_ENV"
+            export VCPKG_INSTALLATION_ROOT="$GITHUB_WORKSPACE/vcpkg"
+          fi
+          # freetype + harfbuzz: drawtext's hard deps in FFmpeg 7.x (ENG-49). vcpkg's ports
+          # carry the static Requires.private (zlib/bz2/brotli/png + harfbuzz↔freetype) so
+          # --pkg-config-flags=--static links them.
+          "$VCPKG_INSTALLATION_ROOT/vcpkg" install libvpx mp3lame opus freetype harfbuzz dav1d --triplet ${{ matrix.triplet }}
+      - name: SVT-AV1 static (cmake, pinned)
+        shell: bash
+        run: |
+          DEPS="$HOME/deps"
+          curl -fsSL "https://gitlab.com/AOMediaCodec/SVT-AV1/-/archive/v${SVTAV1_VERSION}/SVT-AV1-v${SVTAV1_VERSION}.tar.gz" | tar xz
+          # CMAKE_POLICY_VERSION_MINIMUM: SVT-AV1 2.3.0's bundled cpuinfo (x86-only dep)
+          # declares a CMake minimum older than the runner's CMake 4 accepts.
+          cmake -S "SVT-AV1-v${SVTAV1_VERSION}" -B svt-build \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.4 -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DBUILD_APPS=OFF \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_INSTALL_PREFIX="$DEPS"
+          cmake --build svt-build -j 4 && cmake --install svt-build
+          echo "DEPS=$DEPS" >> "$GITHUB_ENV"
+      - name: FFmpeg source (pinned + checksum)
+        shell: bash
+        run: |
+          curl -fsSL "https://ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz" -o ffmpeg.tar.xz
+          echo "$FFMPEG_SHA256  ffmpeg.tar.xz" | shasum -a 256 -c -
+          tar xf ffmpeg.tar.xz
+      - name: Configure + build
+        shell: bash
+        run: |
+          VC="$VCPKG_INSTALLATION_ROOT/installed/${{ matrix.triplet }}"
+          export PKG_CONFIG_PATH="$DEPS/lib/pkgconfig:$VC/lib/pkgconfig"
+          cd "ffmpeg-7.1.1"
+          ./configure $COMMON_FLAGS \
+            --extra-cflags="-mmacosx-version-min=13.4 -I$VC/include -I$DEPS/include" \
+            --extra-ldflags="-mmacosx-version-min=13.4 -L$VC/lib -L$DEPS/lib" \
+            --enable-videotoolbox \
+            --enable-encoder=h264_videotoolbox,hevc_videotoolbox \
+            || { tail -50 ffbuild/config.log; exit 1; }
+          make -j"$(sysctl -n hw.ncpu)"
+          strip ffmpeg
+      - name: Conformance gate
+        shell: bash
+        run: |
+          scripts/check-ffmpeg-conformance.sh \
+            "ffmpeg-7.1.1/ffmpeg" \
+            h264_videotoolbox hevc_videotoolbox
+      - name: Collect binary
+        shell: bash
+        run: |
+          mkdir -p out
+          cp "ffmpeg-7.1.1/ffmpeg" "out/ffmpeg-${{ matrix.rust_triple }}"
+      - name: Verify macOS minimum for every packaged Mach-O
+        shell: bash
+        run: python3 scripts/check-macos-minimum.py out 13.4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-${{ matrix.rust_triple }}
+          path: out/*
+          if-no-files-found: error
+
+  build-libheif:
+    runs-on: macos-15-intel
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '13.4'
+      VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/triplets
+      VCPKG_BINARY_SOURCES: clear
+    strategy:
+      matrix:
+        include:
+          - triplet: x64-osx-dynamic-134
+            rust_triple: x86_64-apple-darwin
+            exe: tesseract
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build libheif (decode-only) via vcpkg
+        shell: bash
+        run: |
+          # aom's x86 SIMD needs nasm to assemble; the Intel macOS runner lacks it (arm64 uses NEON,
+          # Windows vcpkg fetches its own). Ensure nasm on macOS before building the aom feature.
+          if [[ "$RUNNER_OS" == "macOS" ]] && ! command -v nasm >/dev/null 2>&1; then
+            brew install nasm
+          fi
+          # macOS runners ship vcpkg but may lack the env var; bootstrap a fresh clone if needed.
+          unset VCPKG_INSTALLATION_ROOT
+          if true; then
+            git init "$GITHUB_WORKSPACE/vcpkg"
+            git -C "$GITHUB_WORKSPACE/vcpkg" remote add origin https://github.com/microsoft/vcpkg
+            git -C "$GITHUB_WORKSPACE/vcpkg" fetch --depth 1 origin 52d80838fb40c755b1615fbc9c7b994a33742a22
+            git -C "$GITHUB_WORKSPACE/vcpkg" checkout --detach FETCH_HEAD
+            "$GITHUB_WORKSPACE/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+            echo "VCPKG_INSTALLATION_ROOT=$GITHUB_WORKSPACE/vcpkg" >> "$GITHUB_ENV"
+            export VCPKG_INSTALLATION_ROOT="$GITHUB_WORKSPACE/vcpkg"
+          fi
+          # [core] drops x265; [aom] adds libaom = AVIF decode (BSD-2, royalty-free AV1). No x265.
+          "$VCPKG_INSTALLATION_ROOT/vcpkg" install "libheif[core,aom]" --triplet ${{ matrix.triplet }}
+      - name: Guard — assert NO GPL x265/x264 linked (libaom/libde265 are expected)
+        shell: bash
+        run: |
+          root="$VCPKG_INSTALLATION_ROOT/installed/${{ matrix.triplet }}"
+          echo "== installed tree (heif/de265/aom/x265) =="
+          ls -R "$root/lib" "$root/bin" 2>/dev/null | grep -iE 'heif|de265|aom|x26[45]' || true
+          # Fail only on the GPL encoders. libaom (AV1, BSD) + libde265 (HEVC decode) are intended.
+          if ls -R "$root" | grep -iE 'x265|x264|libx26'; then
+            echo "::error::GPL x265/x264 present — a HEVC/AVC encoder linked in" && exit 1
+          fi
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            heif=$(ls "$root/lib/"libheif*.dylib | head -1)
+            echo "== otool -L $heif =="
+            otool -L "$heif"
+            # Allow system libs + our intended dynamic deps (de265 for HEVC, aom for AVIF).
+            if otool -L "$heif" | tail -n +2 | grep -vE '/usr/lib/|/System/|@rpath|libde265|libheif|libaom'; then
+              echo "::error::unexpected non-system dylib in libheif" && exit 1
+            fi
+          fi
+      - name: Package (headers + libs + runtime)
+        shell: bash
+        run: |
+          root="$VCPKG_INSTALLATION_ROOT/installed/${{ matrix.triplet }}"
+          mkdir -p out/libheif/include out/libheif/lib out/libheif/bin
+          cp -R "$root/include/libheif" out/libheif/include/ 2>/dev/null || cp -R "$root/include/"* out/libheif/include/
+          cp -R "$root/lib/"* out/libheif/lib/ 2>/dev/null || true
+          cp -R "$root/bin/"* out/libheif/bin/ 2>/dev/null || true   # Windows runtime DLLs live in bin/
+          echo "== packaged tree =="
+          find out/libheif -maxdepth 2 -type f | head -40
+          tar -C out -czf "libheif-${{ matrix.rust_triple }}.tgz" libheif
+          ls -la "libheif-${{ matrix.rust_triple }}.tgz"
+      - name: Verify macOS minimum for every packaged Mach-O
+        shell: bash
+        run: python3 scripts/check-macos-minimum.py out 13.4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libheif-${{ matrix.rust_triple }}
+          path: libheif-${{ matrix.rust_triple }}.tgz
+          if-no-files-found: error
+  build-tesseract:
+    runs-on: macos-15-intel
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '13.4'
+      VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/triplets
+      VCPKG_BINARY_SOURCES: clear
+    strategy:
+      matrix:
+        include:
+          - triplet: x64-osx-134
+            rust_triple: x86_64-apple-darwin
+            exe: tesseract
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build tesseract (static) via vcpkg
+        shell: bash
+        run: |
+          # macOS runners ship vcpkg but may lack the env var; bootstrap a fresh clone if needed.
+          unset VCPKG_INSTALLATION_ROOT
+          if true; then
+            git init "$GITHUB_WORKSPACE/vcpkg"
+            git -C "$GITHUB_WORKSPACE/vcpkg" remote add origin https://github.com/microsoft/vcpkg
+            git -C "$GITHUB_WORKSPACE/vcpkg" fetch --depth 1 origin 52d80838fb40c755b1615fbc9c7b994a33742a22
+            git -C "$GITHUB_WORKSPACE/vcpkg" checkout --detach FETCH_HEAD
+            "$GITHUB_WORKSPACE/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+            echo "VCPKG_INSTALLATION_ROOT=$GITHUB_WORKSPACE/vcpkg" >> "$GITHUB_ENV"
+            export VCPKG_INSTALLATION_ROOT="$GITHUB_WORKSPACE/vcpkg"
+          fi
+          "$VCPKG_INSTALLATION_ROOT/vcpkg" install tesseract --triplet ${{ matrix.triplet }}
+      - name: Collect binary
+        shell: bash
+        run: |
+          src="$VCPKG_INSTALLATION_ROOT/installed/${{ matrix.triplet }}/tools/tesseract/${{ matrix.exe }}"
+          ls -la "$(dirname "$src")"
+          mkdir -p out
+          dest="out/tesseract-${{ matrix.rust_triple }}"
+          [[ "${{ matrix.exe }}" == *.exe ]] && dest="$dest.exe"
+          cp "$src" "$dest"
+      - name: Smoke test + static check
+        shell: bash
+        run: |
+          bin=$(ls out/tesseract-*)
+          chmod +x "$bin"
+          "$bin" --version
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            # must link only system libs (/usr/lib, frameworks) — no homebrew/vcpkg dylibs
+            otool -L "$bin"
+            if otool -L "$bin" | tail -n +2 | grep -vE '/usr/lib/|/System/'; then
+              echo "::error::non-system dylib dependency found" && exit 1
+            fi
+          fi
+      - name: Verify macOS minimum for every packaged Mach-O
+        shell: bash
+        run: python3 scripts/check-macos-minimum.py out 13.4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tesseract-${{ matrix.rust_triple }}
+          path: out/*
+          if-no-files-found: error
+
