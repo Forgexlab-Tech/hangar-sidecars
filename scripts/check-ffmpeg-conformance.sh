@@ -24,7 +24,7 @@ enc="$("$bin" -hide_banner -encoders)"
 for banned in libx264 libx265 libopenh264; do
   if echo "$enc" | grep -qw "$banned"; then fail "banned encoder present: $banned"; fi
 done
-for req in libsvtav1 libvpx-vp9 libmp3lame libopus aac flac alac pcm_s16le prores_ks mjpeg gif "$@"; do
+for req in libsvtav1 libvpx-vp9 libmp3lame libopus aac flac alac pcm_s16le prores_ks mjpeg gif rawvideo "$@"; do
   if ! echo "$enc" | grep -qw "$req"; then fail "required encoder missing: $req"; fi
 done
 ok "encoder set conforms"
@@ -43,14 +43,32 @@ ok "filter set conforms"
 # program-stream demuxer: `--enable-demuxer=mpegps` registers as `mpeg`.
 dec="$("$bin" -hide_banner -decoders | awk '{print $2}')"
 # Note runtime decoder names vs configure flags: `--enable-decoder=msmpeg4v3` registers as `msmpeg4`.
-for req in h264 hevc av1 libdav1d prores mpeg2video mpeg4 msmpeg4v2 msmpeg4 alac pcm_u8 pcm_s16le pcm_s16be pcm_s24le pcm_s24be pcm_s32le pcm_f32le pcm_f64le pcm_alaw pcm_mulaw adpcm_ms adpcm_ima_wav mp2 ac3 eac3 wmav2 wmapro wmv1 wmv2 wmv3 vc1 dsd_lsbf dsd_msbf dsd_lsbf_planar dsd_msbf_planar dst; do
+for req in h264 hevc av1 libdav1d prores mpeg2video mpeg4 msmpeg4v2 msmpeg4 alac pcm_u8 pcm_s16le pcm_s16be pcm_s24le pcm_s24be pcm_s32le pcm_f32le pcm_f64le pcm_alaw pcm_mulaw adpcm_ms adpcm_ima_wav mp2 ac3 eac3 wmav2 wmapro wmv1 wmv2 wmv3 vc1 dsd_lsbf dsd_msbf dsd_lsbf_planar dsd_msbf_planar dst rawvideo; do
   if ! echo "$dec" | grep -qw "$req"; then fail "required decoder missing: $req"; fi
 done
 demux="$("$bin" -hide_banner -demuxers | awk '{print $2}')"
-for req in mov matroska mpegts mpeg avi asf aiff wav iff dsf; do
+for req in mov matroska mpegts mpeg avi asf aiff wav iff dsf rawvideo; do
   if ! echo "$demux" | grep -qw "$req"; then fail "required demuxer missing: $req"; fi
 done
-ok "decoder + demuxer set conforms"
+mux="$("$bin" -hide_banner -muxers | awk '{print $2}')"
+for req in mp4 matroska webm rawvideo; do
+  if ! echo "$mux" | grep -qw "$req"; then fail "required muxer missing: $req"; fi
+done
+ok "decoder + demuxer + muxer set conforms"
+
+# 2d. macOS hardware decode (r20). `-hwaccel videotoolbox` is accepted even when the per-codec
+# hwaccels are missing (it then silently decodes in software), so assert the decoders advertise
+# the device. Presence only: CI runners are VMs without a usable media engine.
+if [ "$(uname -s)" = Darwin ]; then
+  for codec in h264 hevc; do
+    "$bin" -hide_banner -h decoder=$codec | grep -q "Supported hardware devices:.*videotoolbox" \
+      || fail "$codec decoder lacks the videotoolbox hwaccel"
+  done
+  for req in scale_vt hwdownload; do
+    if ! echo "$filt" | grep -qw "$req"; then fail "required macOS filter missing: $req"; fi
+  done
+  ok "VideoToolbox decode hwaccels present (h264, hevc) + scale_vt/hwdownload"
+fi
 
 # 3. Smoke encodes — software only, runner-safe (spec §5.3)
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
@@ -89,6 +107,16 @@ echo "$dsd_probe" | grep -q "88200 Hz, stereo, s32 (24 bit)" || fail "DSD→FLAC
 run -f lavfi -i testsrc=size=320x240:rate=30 -t 1 -c:v prores_ks -profile:v 2 -vendor apl0 -pix_fmt yuv422p10le -f mov "$tmp/v.mov"
 run -f lavfi -i testsrc=size=320x240:rate=30 -frames:v 1 -vf scale=320:-2 -c:v mjpeg -f image2pipe "$tmp/p.jpg"
 ok "smoke encodes (VP9, AV1, AAC, Opus, MP3, FLAC, ALAC, DSD→FLAC, ProRes, poster JPEG)"
+
+# Raw frame pipes (r20, Device Mockup video engine): decode to exact rgba frames, then encode raw
+# yuv420p back into a file. Byte counts are exact, so a missing rawvideo component or a wrong
+# frame size fails here, not in the app.
+run -f lavfi -i testsrc=size=64x48:rate=5 -t 1 -f rawvideo -pix_fmt rgba "$tmp/frames.rgba"
+[ "$(wc -c < "$tmp/frames.rgba" | tr -d ' ')" = "61440" ] || fail "rawvideo rgba output has the wrong size"
+run -f rawvideo -pix_fmt rgba -s 64x48 -r 5 -i "$tmp/frames.rgba" -f rawvideo -pix_fmt yuv420p "$tmp/frames.yuv"
+[ "$(wc -c < "$tmp/frames.yuv" | tr -d ' ')" = "23040" ] || fail "rawvideo yuv420p output has the wrong size"
+run -f rawvideo -pix_fmt yuv420p -s 64x48 -r 5 -i "$tmp/frames.yuv" -c:v libvpx-vp9 "$tmp/raw.webm"
+ok "rawvideo round trip (rgba out, yuv420p in → VP9)"
 
 # video.join transition path (spec video-join): exercises xfade + acrossfade + gblur + pad +
 # anullsrc + setsar in one graph, so a build that drops any of them fails here instead of at

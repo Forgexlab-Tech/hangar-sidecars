@@ -11,7 +11,7 @@ statically-linked native tools the app ships alongside its binary.
 
 - **`build-ffmpeg.yml`** — a static, **LGPL-only** FFmpeg (no GPL/nonfree components; HW-only
   H.264/HEVC via VideoToolbox / NVENC / QSV / AMF) with explicit common WAV/AIFF/DSD input
-  coverage.
+  coverage, raw-video pipes, and VideoToolbox hardware decoding on macOS (r20).
   Manually dispatched (`workflow_dispatch`);
   publishes `ffmpeg-<version>-rN` releases (mac arm64/x64 + Windows x64). License conformance is
   CI-enforced by `scripts/check-ffmpeg-conformance.sh` (license flags, banned/required encoders,
