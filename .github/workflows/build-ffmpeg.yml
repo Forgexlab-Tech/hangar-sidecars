@@ -14,7 +14,7 @@ on:
       release_tag:
         description: "Release tag to publish binaries under"
         required: true
-        default: "ffmpeg-7.1.1-r19"
+        default: "ffmpeg-7.1.1-r20"
 
 env:
   # sha256 of ffmpeg-<ffmpeg_version>.tar.xz from ffmpeg.org — update on version bumps
@@ -59,6 +59,12 @@ env:
   # Common WAV input decoders added (r19): unsigned 8-bit and signed little-endian 16/24/32-bit
   # PCM, 32/64-bit float, G.711 A-law/mu-law, and Microsoft/IMA WAV ADPCM. They are native LGPL
   # components with no external dependency. Conformance proves direct 24-bit WAV-to-FLAC fidelity.
+  # `rawvideo` encoder + decoder + demuxer + muxer added (r20, Device Mockup video engine v2): the
+  # app pipes uncompressed frames to and from FFmpeg instead of MJPEG in / PNG out, which removed
+  # ~25 ms of CPU per frame and a lossy hand-off, and lets tests read exact output pixels. macOS
+  # also gains the h264/hevc VideoToolbox decode hwaccels + `scale_vt`/`hwdownload` (see the macOS
+  # configure step): r19 accepted `-hwaccel videotoolbox` but silently decoded in software. All
+  # native LGPL, no external dependency.
   COMMON_FLAGS: >-
     --disable-everything --disable-autodetect
     --disable-gpl --disable-nonfree
@@ -68,10 +74,10 @@ env:
     --pkg-config-flags=--static
     --enable-zlib
     --enable-libsvtav1 --enable-libvpx --enable-libmp3lame --enable-libopus --enable-libfreetype --enable-libharfbuzz --enable-libdav1d
-    --enable-encoder=libsvtav1,libvpx_vp9,libmp3lame,libopus,aac,flac,alac,pcm_s16le,prores_ks,mjpeg,gif
-    --enable-decoder=h264,hevc,vp9,av1,libdav1d,mp3,mp2,aac,ac3,eac3,opus,vorbis,alac,pcm_u8,pcm_s16le,pcm_s16be,pcm_s24le,pcm_s24be,pcm_s32le,pcm_f32le,pcm_f64le,pcm_alaw,pcm_mulaw,adpcm_ms,adpcm_ima_wav,flac,dsd_lsbf,dsd_msbf,dsd_lsbf_planar,dsd_msbf_planar,dst,prores,mpeg2video,mpeg4,msmpeg4v2,msmpeg4v3,wmav2,wmapro,wmv1,wmv2,wmv3,vc1,png,mjpeg,wrapped_avframe
-    --enable-demuxer=mov,matroska,mp3,wav,aiff,flac,iff,dsf,mpegts,mpegps,avi,asf,ogg,image2
-    --enable-muxer=mov,mp4,matroska,webm,mp3,wav,flac,ipod,null,image2pipe,ogg,opus,gif
+    --enable-encoder=libsvtav1,libvpx_vp9,libmp3lame,libopus,aac,flac,alac,pcm_s16le,prores_ks,mjpeg,gif,rawvideo
+    --enable-decoder=h264,hevc,vp9,av1,libdav1d,mp3,mp2,aac,ac3,eac3,opus,vorbis,alac,pcm_u8,pcm_s16le,pcm_s16be,pcm_s24le,pcm_s24be,pcm_s32le,pcm_f32le,pcm_f64le,pcm_alaw,pcm_mulaw,adpcm_ms,adpcm_ima_wav,flac,dsd_lsbf,dsd_msbf,dsd_lsbf_planar,dsd_msbf_planar,dst,prores,mpeg2video,mpeg4,msmpeg4v2,msmpeg4v3,wmav2,wmapro,wmv1,wmv2,wmv3,vc1,png,mjpeg,wrapped_avframe,rawvideo
+    --enable-demuxer=mov,matroska,mp3,wav,aiff,flac,iff,dsf,mpegts,mpegps,avi,asf,ogg,image2,rawvideo
+    --enable-muxer=mov,mp4,matroska,webm,mp3,wav,flac,ipod,null,image2pipe,ogg,opus,gif,rawvideo
     --enable-parser=h264,hevc,vp9,av1,aac,ac3,mp3,vorbis,opus,mpeg4video,mpegvideo,vc1,png,mjpeg
     --enable-protocol=file,pipe
     --enable-filter=overlay,scale,crop,trim,atrim,settb,setpts,asetpts,colorchannelmixer,format,aformat,rotate,aresample,fps,split,asplit,select,aselect,concat,testsrc,sine,drawtext,silencedetect,transpose,hflip,vflip,null,atempo,xfade,afade,acrossfade,gblur,pad,anullsrc,setsar,palettegen,paletteuse,asetrate,loudnorm,volume,volumedetect,amix,adelay,alimiter
@@ -140,6 +146,8 @@ jobs:
             --extra-ldflags="-L$VC/lib -L$DEPS/lib" \
             --enable-videotoolbox \
             --enable-encoder=h264_videotoolbox,hevc_videotoolbox \
+            --enable-hwaccel=h264_videotoolbox,hevc_videotoolbox \
+            --enable-filter=scale_vt,hwdownload \
             || { tail -50 ffbuild/config.log; exit 1; }
           make -j"$(sysctl -n hw.ncpu)"
           strip ffmpeg
@@ -247,6 +255,7 @@ jobs:
         run: |
           gh release create "${{ inputs.release_tag }}" dist/* \
             --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
             --title "LGPL FFmpeg sidecar binaries" \
             --notes "Self-built LGPL static FFmpeg ${{ inputs.ffmpeg_version }} (spec docs/specs/ffmpeg-sidecar-build.md; allowlist PACKAGES.md §4.3). No GPL/nonfree components; HW-only H.264/HEVC. Consumed by scripts/fetch-native-libs.sh." \
             || gh release upload "${{ inputs.release_tag }}" dist/* --clobber --repo "${{ github.repository }}"
