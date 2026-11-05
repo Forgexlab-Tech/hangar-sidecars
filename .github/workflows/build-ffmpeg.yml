@@ -14,7 +14,7 @@ on:
       release_tag:
         description: "Release tag to publish binaries under"
         required: true
-        default: "ffmpeg-7.1.1-r20"
+        default: "ffmpeg-7.1.1-r21"
 
 env:
   # sha256 of ffmpeg-<ffmpeg_version>.tar.xz from ffmpeg.org — update on version bumps
@@ -65,6 +65,10 @@ env:
   # also gains the h264/hevc VideoToolbox decode hwaccels + `scale_vt`/`hwdownload` (see the macOS
   # configure step): r19 accepted `-hwaccel videotoolbox` but silently decoded in software. All
   # native LGPL, no external dependency.
+  # `vp8` decoder + parser added (r21): many browser and screen-recorder WebM files are VP8. Without
+  # the decoder FFmpeg reports the stream's pixel format as `none`, so every video tool rejected
+  # them (Compress said "10-bit format 'none'", Convert said "no decoder found for: vp8"). FFmpeg's
+  # own VP8 decoder is native LGPL with no external dependency (libvpx stays encode-only, VP9).
   COMMON_FLAGS: >-
     --disable-everything --disable-autodetect
     --disable-gpl --disable-nonfree
@@ -75,10 +79,10 @@ env:
     --enable-zlib
     --enable-libsvtav1 --enable-libvpx --enable-libmp3lame --enable-libopus --enable-libfreetype --enable-libharfbuzz --enable-libdav1d
     --enable-encoder=libsvtav1,libvpx_vp9,libmp3lame,libopus,aac,flac,alac,pcm_s16le,prores_ks,mjpeg,gif,rawvideo
-    --enable-decoder=h264,hevc,vp9,av1,libdav1d,mp3,mp2,aac,ac3,eac3,opus,vorbis,alac,pcm_u8,pcm_s16le,pcm_s16be,pcm_s24le,pcm_s24be,pcm_s32le,pcm_f32le,pcm_f64le,pcm_alaw,pcm_mulaw,adpcm_ms,adpcm_ima_wav,flac,dsd_lsbf,dsd_msbf,dsd_lsbf_planar,dsd_msbf_planar,dst,prores,mpeg2video,mpeg4,msmpeg4v2,msmpeg4v3,wmav2,wmapro,wmv1,wmv2,wmv3,vc1,png,mjpeg,wrapped_avframe,rawvideo
+    --enable-decoder=h264,hevc,vp8,vp9,av1,libdav1d,mp3,mp2,aac,ac3,eac3,opus,vorbis,alac,pcm_u8,pcm_s16le,pcm_s16be,pcm_s24le,pcm_s24be,pcm_s32le,pcm_f32le,pcm_f64le,pcm_alaw,pcm_mulaw,adpcm_ms,adpcm_ima_wav,flac,dsd_lsbf,dsd_msbf,dsd_lsbf_planar,dsd_msbf_planar,dst,prores,mpeg2video,mpeg4,msmpeg4v2,msmpeg4v3,wmav2,wmapro,wmv1,wmv2,wmv3,vc1,png,mjpeg,wrapped_avframe,rawvideo
     --enable-demuxer=mov,matroska,mp3,wav,aiff,flac,iff,dsf,mpegts,mpegps,avi,asf,ogg,image2,rawvideo
     --enable-muxer=mov,mp4,matroska,webm,mp3,wav,flac,ipod,null,image2pipe,ogg,opus,gif,rawvideo
-    --enable-parser=h264,hevc,vp9,av1,aac,ac3,mp3,vorbis,opus,mpeg4video,mpegvideo,vc1,png,mjpeg
+    --enable-parser=h264,hevc,vp8,vp9,av1,aac,ac3,mp3,vorbis,opus,mpeg4video,mpegvideo,vc1,png,mjpeg
     --enable-protocol=file,pipe
     --enable-filter=overlay,scale,crop,trim,atrim,settb,setpts,asetpts,colorchannelmixer,format,aformat,rotate,aresample,fps,split,asplit,select,aselect,concat,testsrc,sine,drawtext,silencedetect,transpose,hflip,vflip,null,atempo,xfade,afade,acrossfade,gblur,pad,anullsrc,setsar,palettegen,paletteuse,asetrate,loudnorm,volume,volumedetect,amix,adelay,alimiter
     --enable-indev=lavfi
