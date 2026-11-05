@@ -20,6 +20,11 @@ env:
   # sha256 of ffmpeg-<ffmpeg_version>.tar.xz from ffmpeg.org — update on version bumps
   FFMPEG_SHA256: "733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1"
   SVTAV1_VERSION: "2.3.0"
+  # Windows only (r21): MSYS2's rolling lame package now links its MP3 decoder against libmpg123,
+  # which our static link lacks. Build the encoder from pinned source with the decoder off, so the
+  # binary links exactly what r20 did. macOS keeps vcpkg's lame.
+  LAME_VERSION: "3.100"
+  LAME_SHA256: "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e"
   # The LGPL allowlist (PACKAGES.md §4.3, normative). `sine` filter added for the
   # conformance gate's audio smoke encodes (documented PACKAGES deviation). `drawtext`
   # + `--enable-libfreetype --enable-libharfbuzz` added for video.watermark text marks
@@ -136,7 +141,7 @@ jobs:
       - name: FFmpeg source (pinned + checksum)
         shell: bash
         run: |
-          curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${{ inputs.ffmpeg_version }}.tar.xz" -o ffmpeg.tar.xz
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 15 "https://ffmpeg.org/releases/ffmpeg-${{ inputs.ffmpeg_version }}.tar.xz" -o ffmpeg.tar.xz
           echo "$FFMPEG_SHA256  ffmpeg.tar.xz" | shasum -a 256 -c -
           tar xf ffmpeg.tar.xz
       - name: Configure + build
@@ -187,7 +192,7 @@ jobs:
             base-devel git curl
             mingw-w64-x86_64-toolchain mingw-w64-x86_64-nasm mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-libvpx mingw-w64-x86_64-lame
+            mingw-w64-x86_64-libvpx
             mingw-w64-x86_64-opus mingw-w64-x86_64-libvpl mingw-w64-x86_64-zlib mingw-w64-x86_64-dav1d
             mingw-w64-x86_64-freetype mingw-w64-x86_64-harfbuzz
       - name: SVT-AV1 static (cmake, pinned — MSYS2's rolling svt-av1 is too new for FFmpeg 7.1's wrapper)
@@ -198,6 +203,16 @@ jobs:
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_INSTALL_PREFIX=/mingw64
           cmake --build svt-build -j 4 && cmake --install svt-build
+      - name: LAME static (pinned, MP3 decoder off — MSYS2's rolling lame now needs libmpg123)
+        run: |
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 15 \
+            "https://downloads.sourceforge.net/project/lame/lame/${LAME_VERSION}/lame-${LAME_VERSION}.tar.gz" -o lame.tar.gz
+          echo "$LAME_SHA256  lame.tar.gz" | sha256sum -c -
+          tar xzf lame.tar.gz
+          cd "lame-${LAME_VERSION}"
+          ./configure --prefix=/mingw64 --disable-shared --enable-static \
+            --disable-frontend --disable-decoder --disable-gtktest
+          make -j"$(nproc)" && make install
       - name: HW encoder headers (NVENC + AMF, pinned; header-only — no license exposure)
         run: |
           git clone --depth 1 --branch n12.2.72.0 https://github.com/FFmpeg/nv-codec-headers.git
@@ -207,7 +222,7 @@ jobs:
           cp -r AMF/amf/public/include/* /mingw64/include/AMF/
       - name: FFmpeg source (pinned + checksum)
         run: |
-          curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${{ inputs.ffmpeg_version }}.tar.xz" -o ffmpeg.tar.xz
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 15 "https://ffmpeg.org/releases/ffmpeg-${{ inputs.ffmpeg_version }}.tar.xz" -o ffmpeg.tar.xz
           echo "$FFMPEG_SHA256  ffmpeg.tar.xz" | sha256sum -c -
           tar xf ffmpeg.tar.xz
       - name: Configure + build
