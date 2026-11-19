@@ -103,7 +103,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          # macos-14 was retired in November 2026; macos-15 is Apple Silicon too
+          - os: macos-15
             triplet: arm64-osx
             rust_triple: aarch64-apple-darwin
           # last GitHub-hosted Intel macOS image (macos-13 was retired in 2025)
@@ -111,6 +112,11 @@ jobs:
             triplet: x64-osx
             rust_triple: x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
+    env:
+      # Keep the binaries running on macOS 14, as r21 did (newer runners default to their
+      # own macOS version). vcpkg clears the environment unless told to keep it.
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
+      VCPKG_KEEP_ENV_VARS: MACOSX_DEPLOYMENT_TARGET
     steps:
       - uses: actions/checkout@v4
       - name: Build tools
