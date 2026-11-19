@@ -47,7 +47,8 @@ for req in h264 hevc vp8 vp9 av1 libdav1d prores mpeg2video mpeg4 msmpeg4v2 msmp
   if ! echo "$dec" | grep -qw "$req"; then fail "required decoder missing: $req"; fi
 done
 demux="$("$bin" -hide_banner -demuxers | awk '{print $2}')"
-for req in mov matroska mpegts mpeg avi asf aiff wav iff dsf rawvideo; do
+# r22: raw AAC, AC-3, E-AC-3 and MPEG-2 video files.
+for req in mov matroska mpegts mpeg avi asf aiff wav iff dsf rawvideo aac ac3 eac3 mpegvideo; do
   if ! echo "$demux" | grep -qw "$req"; then fail "required demuxer missing: $req"; fi
 done
 mux="$("$bin" -hide_banner -muxers | awk '{print $2}')"
